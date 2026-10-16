@@ -519,8 +519,8 @@ async def run_telegram_bot(token: str, session_factory) -> None:
     """Start long polling and close the Telegram HTTP session on shutdown."""
     bot = Bot(token=token)
     dispatcher = Dispatcher()
-    setup_telegram_handlers(dispatcher, session_factory)
     setup_admin_handlers(dispatcher, session_factory, get_settings())
+    setup_telegram_handlers(dispatcher, session_factory)
     try:
         logger.info("Starting Telegram bot polling.")
         await dispatcher.start_polling(bot)
