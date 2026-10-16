@@ -7,9 +7,22 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
-from skrudj.database import create_listing, register_or_update_telegram_user
+from skrudj.database import (
+    create_listing,
+    delete_owned_listing,
+    get_user_listings,
+    register_or_update_telegram_user,
+    update_owned_listing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +37,12 @@ MAIN_MENU = ReplyKeyboardMarkup(
     resize_keyboard=True,
     input_field_placeholder="Выберите действие",
 )
+
+
+class ListingEditForm(StatesGroup):
+    """State for editing a seller-owned listing field."""
+
+    value = State()
 
 
 class ListingForm(StatesGroup):
@@ -201,6 +220,191 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             "Публикация станет доступна после проверки модератором.",
             reply_markup=MAIN_MENU,
         )
+
+    @router.message(F.text == "📦 Мои объявления")
+    async def my_listings_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if message.from_user is None:
+            await message.answer("Не удалось определить аккаунт Telegram.")
+            return
+
+        async with session_factory() as session:
+            listings = await get_user_listings(session, message.from_user.id)
+
+        if not listings:
+            await message.answer("У вас пока нет объявлений.", reply_markup=MAIN_MENU)
+            return
+
+        await message.answer(f"📦 Ваши объявления: {len(listings)}")
+        for listing in listings:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✏️ Изменить",
+                            callback_data=f"listing_edit:{listing.id}",
+                        ),
+                        InlineKeyboardButton(
+                            text="🗑 Удалить",
+                            callback_data=f"listing_delete:{listing.id}",
+                        ),
+                    ]
+                ]
+            )
+            await message.answer(
+                f"#{listing.id} · {listing.title}\n"
+                f"Цена: {listing.price:.2f} ₽ · {listing.city}\n"
+                f"Статус: {listing.status}",
+                reply_markup=keyboard,
+            )
+
+    @router.callback_query(F.data.startswith("listing_edit:"))
+    async def listing_edit_start_handler(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось открыть объявление.", show_alert=True)
+            return
+        listing_id = callback.data.split(":", 1)[1]
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Название", callback_data=f"listing_field:{listing_id}:title"),
+                    InlineKeyboardButton(text="Категория", callback_data=f"listing_field:{listing_id}:category"),
+                ],
+                [
+                    InlineKeyboardButton(text="Описание", callback_data=f"listing_field:{listing_id}:description"),
+                    InlineKeyboardButton(text="Цена", callback_data=f"listing_field:{listing_id}:price"),
+                ],
+                [InlineKeyboardButton(text="Город", callback_data=f"listing_field:{listing_id}:city")],
+            ]
+        )
+        await callback.message.answer("Что хотите изменить?", reply_markup=keyboard)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("listing_field:"))
+    async def listing_edit_field_handler(
+        callback: CallbackQuery, state: FSMContext
+    ) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось открыть редактирование.", show_alert=True)
+            return
+        _, raw_id, field = callback.data.split(":", 2)
+        if field not in {"title", "category", "description", "price", "city"}:
+            await callback.answer("Неизвестное поле.", show_alert=True)
+            return
+        async with session_factory() as session:
+            listings = await get_user_listings(session, callback.from_user.id)
+        if not any(item.id == int(raw_id) for item in listings):
+            await callback.answer("Это объявление не найдено в вашем профиле.", show_alert=True)
+            return
+
+        await state.clear()
+        await state.update_data(listing_id=int(raw_id), field=field)
+        await state.set_state(ListingEditForm.value)
+        prompts = {
+            "title": "Введите новое название (3–120 символов).",
+            "category": "Введите новую категорию (1–80 символов).",
+            "description": "Введите новое описание (10–2000 символов).",
+            "price": "Введите новую цену в рублях, например 1500.50.",
+            "city": "Введите новый город (1–100 символов).",
+        }
+        await callback.message.answer(prompts[field] + "\nДля отмены отправьте /cancel.")
+        await callback.answer()
+
+    @router.message(ListingEditForm.value)
+    async def listing_edit_value_handler(message: Message, state: FSMContext) -> None:
+        if message.from_user is None:
+            await state.clear()
+            await message.answer("Не удалось определить аккаунт Telegram.")
+            return
+        data = await state.get_data()
+        field = data["field"]
+        raw_value = (message.text or "").strip()
+        limits = {"title": (3, 120), "category": (1, 80), "description": (10, 2000), "city": (1, 100)}
+        value: str | Decimal = raw_value
+
+        if field == "price":
+            try:
+                price = Decimal(raw_value.replace(",", ".").replace(" ", ""))
+            except InvalidOperation:
+                await message.answer("Введите цену числом, например 1500 или 1500.50.")
+                return
+            if (
+                not price.is_finite()
+                or price <= 0
+                or price > Decimal("9999999999.99")
+                or price.as_tuple().exponent < -2
+            ):
+                await message.answer("Цена должна быть положительной, не больше 9 999 999 999,99 ₽ и с максимум двумя знаками после запятой.")
+                return
+            value = price.quantize(Decimal("0.01"))
+        else:
+            minimum, maximum = limits[field]
+            if not minimum <= len(raw_value) <= maximum:
+                await message.answer(f"Длина значения должна быть от {minimum} до {maximum} символов.")
+                return
+
+        async with session_factory() as session:
+            listing = await update_owned_listing(
+                session,
+                listing_id=data["listing_id"],
+                seller_telegram_id=message.from_user.id,
+                field=field,
+                value=value,
+            )
+        await state.clear()
+        if listing is None:
+            await message.answer("Объявление не найдено или больше вам не принадлежит.", reply_markup=MAIN_MENU)
+            return
+        await message.answer(
+            f"✅ Объявление #{listing.id} обновлено и отправлено на повторную модерацию.",
+            reply_markup=MAIN_MENU,
+        )
+
+    @router.callback_query(F.data.startswith("listing_delete:"))
+    async def listing_delete_start_handler(callback: CallbackQuery) -> None:
+        if callback.message is None:
+            await callback.answer()
+            return
+        listing_id = callback.data.split(":", 1)[1]
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Да, удалить", callback_data=f"listing_delete_confirm:{listing_id}"),
+                    InlineKeyboardButton(text="Отмена", callback_data="listing_delete_cancel"),
+                ]
+            ]
+        )
+        await callback.message.answer(
+            f"Удалить объявление #{listing_id}? Это действие нельзя отменить.",
+            reply_markup=keyboard,
+        )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("listing_delete_confirm:"))
+    async def listing_delete_confirm_handler(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось удалить объявление.", show_alert=True)
+            return
+        try:
+            listing_id = int(callback.data.split(":", 1)[1])
+        except ValueError:
+            await callback.answer("Некорректный номер объявления.", show_alert=True)
+            return
+        async with session_factory() as session:
+            deleted = await delete_owned_listing(
+                session, listing_id=listing_id, seller_telegram_id=callback.from_user.id
+            )
+        await callback.message.answer(
+            "🗑 Объявление удалено." if deleted else "Объявление не найдено или не принадлежит вам.",
+            reply_markup=MAIN_MENU,
+        )
+        await callback.answer()
+
+    @router.callback_query(F.data == "listing_delete_cancel")
+    async def listing_delete_cancel_handler(callback: CallbackQuery) -> None:
+        if callback.message is not None:
+            await callback.message.answer("Удаление отменено.", reply_markup=MAIN_MENU)
+        await callback.answer()
 
     @router.message()
     async def fallback_handler(message: Message) -> None:
