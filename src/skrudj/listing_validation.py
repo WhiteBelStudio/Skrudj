@@ -1,6 +1,11 @@
-"""Validation helpers for user-submitted marketplace listing fields."""
+"""Validation helpers for marketplace listing fields and media."""
 
 from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from skrudj.config import get_settings
+
+ALLOWED_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 
 
 def validate_text_field(
@@ -32,3 +37,61 @@ def parse_price(raw_value: str | None) -> Decimal:
     if price.as_tuple().exponent < -2:
         raise ValueError("Можно указать не больше двух знаков после запятой.")
     return price.quantize(Decimal("0.01"))
+
+
+def validate_image_metadata(
+    *,
+    mime_type: str | None,
+    size_bytes: int | None,
+    max_size_bytes: int,
+) -> None:
+    """Reject unsupported image MIME types and files over the configured limit."""
+    if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+        raise ValueError("Поддерживаются только изображения JPG, PNG и WebP.")
+    if size_bytes is None or size_bytes <= 0:
+        raise ValueError("Не удалось проверить размер файла. Отправьте изображение ещё раз.")
+    if size_bytes > max_size_bytes:
+        raise ValueError(
+            f"Изображение слишком большое. Максимальный размер — "
+            f"{max_size_bytes // (1024 * 1024)} МБ."
+        )
+
+
+def validate_photo_count(current_count: int, max_count: int) -> None:
+    """Ensure the next photo will not exceed the configured listing limit."""
+    if current_count >= max_count:
+        raise ValueError(f"Можно добавить не больше {max_count} фотографий к объявлению.")
+
+
+def photo_metadata_from_message(message: Any) -> dict[str, Any]:
+    """Extract and validate image metadata from an aiogram message."""
+    max_size_bytes = get_settings().max_upload_size_mb * 1024 * 1024
+
+    if message.photo:
+        photo = message.photo[-1]
+        validate_image_metadata(
+            mime_type="image/jpeg",
+            size_bytes=photo.file_size,
+            max_size_bytes=max_size_bytes,
+        )
+        return {
+            "file_id": photo.file_id,
+            "file_unique_id": photo.file_unique_id,
+            "mime_type": "image/jpeg",
+            "size_bytes": photo.file_size,
+        }
+
+    document = message.document
+    if document is None:
+        raise ValueError("Отправьте фотографию JPG, PNG или WebP либо /done для завершения.")
+    validate_image_metadata(
+        mime_type=document.mime_type,
+        size_bytes=document.file_size,
+        max_size_bytes=max_size_bytes,
+    )
+    return {
+        "file_id": document.file_id,
+        "file_unique_id": document.file_unique_id,
+        "mime_type": document.mime_type,
+        "size_bytes": document.file_size,
+    }
