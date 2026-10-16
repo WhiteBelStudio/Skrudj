@@ -1,7 +1,7 @@
 """Telegram bot handlers for registration, profiles, and listing creation."""
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
@@ -24,6 +24,7 @@ from skrudj.database import (
     register_or_update_telegram_user,
     update_owned_listing,
 )
+from skrudj.listing_validation import parse_price, validate_text_field
 from skrudj.notifications import notify_telegram_admins
 
 logger = logging.getLogger(__name__)
@@ -133,11 +134,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
 
     @router.message(ListingForm.title)
     async def listing_title_handler(message: Message, state: FSMContext) -> None:
-        title = (message.text or "").strip()
-        if not 3 <= len(title) <= 120:
-            await message.answer(
-                "Название должно содержать от 3 до 120 символов. Попробуйте ещё раз."
+        try:
+            title = validate_text_field(
+                message.text, field_name="Название", minimum=3, maximum=120
             )
+        except ValueError as exc:
+            await message.answer(f"{exc} Попробуйте ещё раз.")
             return
         await state.update_data(title=title)
         await state.set_state(ListingForm.category)
@@ -145,9 +147,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
 
     @router.message(ListingForm.category)
     async def listing_category_handler(message: Message, state: FSMContext) -> None:
-        category = (message.text or "").strip()
-        if not category or len(category) > 80:
-            await message.answer("Категория обязательна и должна быть не длиннее 80 символов.")
+        try:
+            category = validate_text_field(
+                message.text, field_name="Категория", minimum=1, maximum=80
+            )
+        except ValueError as exc:
+            await message.answer(str(exc))
             return
         await state.update_data(category=category)
         await state.set_state(ListingForm.description)
@@ -155,9 +160,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
 
     @router.message(ListingForm.description)
     async def listing_description_handler(message: Message, state: FSMContext) -> None:
-        description = (message.text or "").strip()
-        if not 10 <= len(description) <= 2000:
-            await message.answer("Описание должно содержать от 10 до 2000 символов.")
+        try:
+            description = validate_text_field(
+                message.text, field_name="Описание", minimum=10, maximum=2000
+            )
+        except ValueError as exc:
+            await message.answer(str(exc))
             return
         await state.update_data(description=description)
         await state.set_state(ListingForm.price)
@@ -165,19 +173,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
 
     @router.message(ListingForm.price)
     async def listing_price_handler(message: Message, state: FSMContext) -> None:
-        raw_price = (message.text or "").strip().replace(",", ".").replace(" ", "")
         try:
-            price = Decimal(raw_price)
-        except InvalidOperation:
-            await message.answer("Введите цену числом, например 1500 или 1500.50.")
+            price = parse_price(message.text)
+        except ValueError as exc:
+            await message.answer(str(exc))
             return
-        if not price.is_finite() or price <= 0 or price > Decimal("9999999999.99"):
-            await message.answer("Цена должна быть больше нуля и не превышать 9 999 999 999,99 ₽.")
-            return
-        if price.as_tuple().exponent < -2:
-            await message.answer("Можно указать не больше двух знаков после запятой.")
-            return
-        await state.update_data(price=str(price.quantize(Decimal("0.01"))))
+        await state.update_data(price=str(price))
         await state.set_state(ListingForm.city)
         await message.answer("Укажите город, в котором находится товар (до 100 символов).")
 
@@ -187,9 +188,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             await state.clear()
             await message.answer("Не удалось определить аккаунт Telegram.")
             return
-        city = (message.text or "").strip()
-        if not city or len(city) > 100:
-            await message.answer("Город обязателен и должен быть не длиннее 100 символов.")
+        try:
+            city = validate_text_field(
+                message.text, field_name="Город", minimum=1, maximum=100
+            )
+        except ValueError as exc:
+            await message.answer(str(exc))
             return
 
         data = await state.get_data()
@@ -333,39 +337,38 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             return
         data = await state.get_data()
         field = data["field"]
-        raw_value = (message.text or "").strip()
-        limits = {
-            "title": (3, 120),
-            "category": (1, 80),
-            "description": (10, 2000),
-            "city": (1, 100),
-        }
-        value: str | Decimal = raw_value
+        raw_value = message.text
+        value: str | Decimal
 
         if field == "price":
             try:
-                price = Decimal(raw_value.replace(",", ".").replace(" ", ""))
-            except InvalidOperation:
-                await message.answer("Введите цену числом, например 1500 или 1500.50.")
+                value = parse_price(raw_value)
+            except ValueError as exc:
+                await message.answer(str(exc))
                 return
-            if (
-                not price.is_finite()
-                or price <= 0
-                or price > Decimal("9999999999.99")
-                or price.as_tuple().exponent < -2
-            ):
-                await message.answer(
-                    "Цена должна быть положительной, не больше 9 999 999 999,99 ₽ "
-                    "и с максимум двумя знаками после запятой."
-                )
-                return
-            value = price.quantize(Decimal("0.01"))
         else:
+            limits = {
+                "title": (3, 120),
+                "category": (1, 80),
+                "description": (10, 2000),
+                "city": (1, 100),
+            }
             minimum, maximum = limits[field]
-            if not minimum <= len(raw_value) <= maximum:
-                await message.answer(
-                    f"Длина значения должна быть от {minimum} до {maximum} символов."
+            labels = {
+                "title": "Название",
+                "category": "Категория",
+                "description": "Описание",
+                "city": "Город",
+            }
+            try:
+                value = validate_text_field(
+                    raw_value,
+                    field_name=labels[field],
+                    minimum=minimum,
+                    maximum=maximum,
                 )
+            except ValueError as exc:
+                await message.answer(str(exc))
                 return
 
         async with session_factory() as session:
