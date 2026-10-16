@@ -2,9 +2,10 @@
 
 import logging
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from aiogram import BaseMiddleware, F, Router
+from aiogram import BaseMiddleware, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
