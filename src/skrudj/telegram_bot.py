@@ -16,6 +16,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from skrudj.config import get_settings
 from skrudj.database import (
     create_listing,
     delete_owned_listing,
@@ -23,6 +24,7 @@ from skrudj.database import (
     register_or_update_telegram_user,
     update_owned_listing,
 )
+from skrudj.notifications import notify_telegram_admins
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,7 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             )
 
         await state.clear()
+        await notify_telegram_admins(message.bot, listing, get_settings())
         await message.answer(
             "✅ Объявление сохранено и отправлено на модерацию.\n\n"
             f"Номер: #{listing.id}\n"
@@ -380,6 +383,7 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 reply_markup=MAIN_MENU,
             )
             return
+        await notify_telegram_admins(message.bot, listing, get_settings())
         await message.answer(
             f"✅ Объявление #{listing.id} обновлено и отправлено на повторную модерацию.",
             reply_markup=MAIN_MENU,
