@@ -3,10 +3,12 @@
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from skrudj.database import (
     Base,
+    ListingPhoto,
     create_listing,
     get_listing,
     make_session_factory,
@@ -49,5 +51,34 @@ async def test_creates_listing_pending_moderation() -> None:
             assert saved.title == "Wireless headphones"
             assert saved.seller_telegram_id == 987654
             assert saved.city == "Белореченск"
+
+            photo_listing = await create_listing(
+                session,
+                seller_telegram_id=987654,
+                title="Camera",
+                category="Electronics",
+                description="Camera in excellent working condition.",
+                price=Decimal("5000.00"),
+                city="Белореченск",
+                photos=[
+                    {
+                        "file_id": "telegram-file-id",
+                        "file_unique_id": "telegram-unique-id",
+                        "mime_type": "image/jpeg",
+                        "size_bytes": 2048,
+                    }
+                ],
+            )
+            photos = (
+                await session.execute(
+                    select(ListingPhoto).where(
+                        ListingPhoto.listing_id == photo_listing.id
+                    )
+                )
+            ).scalars().all()
+            assert len(photos) == 1
+            assert photos[0].file_id == "telegram-file-id"
+            assert photos[0].mime_type == "image/jpeg"
+            assert photos[0].position == 1
     finally:
         await engine.dispose()
