@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, select
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -26,6 +26,23 @@ class TelegramUser(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+
+class UserAccess(Base):
+    """Administrative role and block status for a Telegram account."""
+
+    __tablename__ = "user_access"
+
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    role: Mapped[str] = mapped_column(String(24), default="user", nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(default=False, nullable=False)
+    block_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -231,3 +248,77 @@ async def delete_owned_listing(
     await session.delete(listing)
     await session.commit()
     return True
+
+
+ADMIN_ROLES = frozenset({"user", "moderator", "admin"})
+
+
+async def get_user_access(session: AsyncSession, telegram_id: int) -> UserAccess | None:
+    """Get stored role and block status for a Telegram account."""
+    return await session.get(UserAccess, telegram_id)
+
+
+async def set_user_role(
+    session: AsyncSession, *, telegram_id: int, role: str
+) -> UserAccess:
+    """Set a supported role; caller must enforce authorization."""
+    if role not in ADMIN_ROLES:
+        raise ValueError("Unsupported role")
+    access = await session.get(UserAccess, telegram_id)
+    if access is None:
+        access = UserAccess(telegram_id=telegram_id, role=role)
+        session.add(access)
+    else:
+        access.role = role
+        access.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(access)
+    return access
+
+
+async def set_user_block(
+    session: AsyncSession,
+    *,
+    telegram_id: int,
+    blocked: bool,
+    reason: str | None = None,
+) -> UserAccess:
+    """Set block state and optional reason; caller must enforce authorization."""
+    access = await session.get(UserAccess, telegram_id)
+    if access is None:
+        access = UserAccess(telegram_id=telegram_id)
+        session.add(access)
+    access.is_blocked = blocked
+    access.block_reason = (reason or "").strip()[:500] or None if blocked else None
+    access.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(access)
+    return access
+
+
+async def get_admin_statistics(session: AsyncSession) -> dict[str, int]:
+    """Return aggregate counts for the admin dashboard."""
+    users = await session.scalar(select(func.count()).select_from(TelegramUser)) or 0
+    listings = await session.scalar(select(func.count()).select_from(Listing)) or 0
+    pending = await session.scalar(
+        select(func.count()).select_from(Listing).where(Listing.status == "pending")
+    ) or 0
+    published = await session.scalar(
+        select(func.count()).select_from(Listing).where(Listing.status == "published")
+    ) or 0
+    blocked = await session.scalar(
+        select(func.count()).select_from(UserAccess).where(UserAccess.is_blocked.is_(True))
+    ) or 0
+    moderators = await session.scalar(
+        select(func.count()).select_from(UserAccess).where(
+            UserAccess.role.in_(("moderator", "admin"))
+        )
+    ) or 0
+    return {
+        "users": int(users),
+        "listings": int(listings),
+        "pending_listings": int(pending),
+        "published_listings": int(published),
+        "blocked_users": int(blocked),
+        "staff": int(moderators),
+    }
