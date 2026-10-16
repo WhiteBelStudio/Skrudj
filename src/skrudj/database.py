@@ -137,3 +137,66 @@ async def create_listing(
 async def get_listing(session: AsyncSession, listing_id: int) -> Listing | None:
     """Return one listing by its database ID."""
     return await session.get(Listing, listing_id)
+
+
+
+async def get_user_listings(
+    session: AsyncSession, seller_telegram_id: int, *, limit: int = 20
+) -> list[Listing]:
+    """Return a seller's newest listings, never exposing another seller's records."""
+    result = await session.execute(
+        select(Listing)
+        .where(Listing.seller_telegram_id == seller_telegram_id)
+        .order_by(Listing.created_at.desc(), Listing.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def update_owned_listing(
+    session: AsyncSession,
+    *,
+    listing_id: int,
+    seller_telegram_id: int,
+    field: str,
+    value: str | Decimal,
+) -> Listing | None:
+    """Update an allowed field only when the listing belongs to the requesting seller."""
+    allowed_fields = {"title", "category", "description", "price", "city"}
+    if field not in allowed_fields:
+        raise ValueError("Unsupported listing field")
+
+    result = await session.execute(
+        select(Listing).where(
+            Listing.id == listing_id,
+            Listing.seller_telegram_id == seller_telegram_id,
+        )
+    )
+    listing = result.scalar_one_or_none()
+    if listing is None:
+        return None
+
+    setattr(listing, field, value)
+    listing.status = "pending"
+    await session.commit()
+    await session.refresh(listing)
+    return listing
+
+
+async def delete_owned_listing(
+    session: AsyncSession, *, listing_id: int, seller_telegram_id: int
+) -> bool:
+    """Delete a listing only when it belongs to the requesting seller."""
+    result = await session.execute(
+        select(Listing).where(
+            Listing.id == listing_id,
+            Listing.seller_telegram_id == seller_telegram_id,
+        )
+    )
+    listing = result.scalar_one_or_none()
+    if listing is None:
+        return False
+
+    await session.delete(listing)
+    await session.commit()
+    return True
