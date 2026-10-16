@@ -37,7 +37,7 @@ async def notify_telegram_admins(
         f"Цена: {listing.price:.2f} ₽\n"
         f"Город: {listing.city}\n"
         f"Продавец Telegram ID: {listing.seller_telegram_id}\n\n"
-        "Откройте панель модерации, чтобы проверить объявление."
+        "Публикация не выполнена автоматически: объявление ожидает решения модератора."
     )
     delivered = 0
     for admin_id in sorted(admin_ids):
