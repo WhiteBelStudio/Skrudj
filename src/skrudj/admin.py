@@ -2,9 +2,11 @@
 
 import logging
 
-from aiogram import F, Router
+from typing import Any, Awaitable, Callable
+
+from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from skrudj.config import Settings
 from skrudj.database import (
@@ -16,6 +18,37 @@ from skrudj.database import (
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+class AccessGuardMiddleware(BaseMiddleware):
+    """Stop blocked accounts from interacting with the bot."""
+
+    def __init__(self, session_factory, settings: Settings) -> None:
+        self.session_factory = session_factory
+        self.settings = settings
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        user = getattr(event, "from_user", None)
+        if user is None or user.id in self.settings.telegram_admin_id_set:
+            return await handler(event, data)
+
+        async with self.session_factory() as session:
+            access = await get_user_access(session, user.id)
+        if access is None or not access.is_blocked:
+            return await handler(event, data)
+
+        reason = f" Причина: {access.block_reason}" if access.block_reason else ""
+        notice = f"🚫 Доступ к Skrudj ограничен.{reason}"
+        if isinstance(event, CallbackQuery):
+            await event.answer(notice, show_alert=True)
+        elif isinstance(event, Message):
+            await event.answer(notice)
+        return None
+
 
 ROLE_LABELS = {
     "user": "Пользователь",
@@ -168,4 +201,6 @@ def setup_admin_handlers(dispatcher, session_factory, settings: Settings) -> Non
             await set_user_block(session, telegram_id=target_id, blocked=False)
         await message.answer(f"✅ Блокировка пользователя {target_id} снята.")
 
+    router.message.outer_middleware(AccessGuardMiddleware(session_factory, settings))
+    router.callback_query.outer_middleware(AccessGuardMiddleware(session_factory, settings))
     dispatcher.include_router(router)
