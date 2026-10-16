@@ -2,8 +2,10 @@
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./data/skrudj.sqlite3"
 
 
 class Settings(BaseSettings):
@@ -25,7 +27,7 @@ class Settings(BaseSettings):
     vk_group_id: int | None = None
     vk_confirmation_code: str | None = None
 
-    database_url: str = "sqlite+aiosqlite:///./data/skrudj.sqlite3"
+    database_url: str = DEFAULT_DATABASE_URL
 
     telegram_admin_ids: str = ""
     vk_admin_ids: str = ""
@@ -36,6 +38,16 @@ class Settings(BaseSettings):
 
     max_photos_per_listing: int = Field(default=5, ge=1, le=20)
     max_upload_size_mb: int = Field(default=10, ge=1, le=100)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def use_default_database_url_when_blank(cls, value: object) -> str:
+        """Avoid an invalid empty SQLAlchemy URL when DATABASE_URL is blank."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return DEFAULT_DATABASE_URL
+        if not isinstance(value, str):
+            raise ValueError("DATABASE_URL must be a non-empty URL string.")
+        return value.strip()
 
     @property
     def telegram_admin_id_set(self) -> set[int]:
