@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 from skrudj.config import get_settings
+from skrudj.database import initialize_database, make_engine, make_session_factory
+from skrudj.telegram_bot import run_telegram_bot
 
 
 def configure_logging(level: str) -> None:
@@ -30,10 +32,25 @@ async def run() -> None:
         if database_path and database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Skrudj configuration loaded (environment=%s).", settings.app_env)
-    logger.info(
-        "Startup scaffold only: integrations and database migrations are not implemented yet."
-    )
+    engine = make_engine(settings.database_url)
+    try:
+        await initialize_database(engine)
+        logger.info("Database initialized.")
+
+        if settings.telegram_bot_token is None:
+            logger.warning(
+                "TELEGRAM_BOT_TOKEN is not configured; database is ready, "
+                "but Telegram polling was not started."
+            )
+            return
+
+        session_factory = make_session_factory(engine)
+        await run_telegram_bot(
+            settings.telegram_bot_token.get_secret_value(),
+            session_factory,
+        )
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":
