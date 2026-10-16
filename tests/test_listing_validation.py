@@ -4,7 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from skrudj.listing_validation import parse_price, validate_text_field
+from skrudj.listing_validation import (
+    parse_price,
+    validate_image_metadata,
+    validate_photo_count,
+    validate_text_field,
+)
 
 
 @pytest.mark.parametrize(
@@ -76,3 +81,40 @@ def test_price_accepts_rubles_and_normalizes_decimal_separator(
 def test_price_rejects_invalid_values(raw_value: str | None) -> None:
     with pytest.raises(ValueError):
         parse_price(raw_value)
+
+
+
+@pytest.mark.parametrize("mime_type", ["image/jpeg", "image/png", "image/webp"])
+def test_allowed_image_types_are_accepted(mime_type: str) -> None:
+    validate_image_metadata(
+        mime_type=mime_type,
+        size_bytes=1024,
+        max_size_bytes=10 * 1024 * 1024,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "size_bytes"),
+    [
+        ("application/pdf", 1024),
+        ("image/svg+xml", 1024),
+        ("image/jpeg", 0),
+        ("image/png", None),
+        ("image/webp", 10 * 1024 * 1024 + 1),
+    ],
+)
+def test_invalid_or_oversized_images_are_rejected(
+    mime_type: str, size_bytes: int | None
+) -> None:
+    with pytest.raises(ValueError):
+        validate_image_metadata(
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            max_size_bytes=10 * 1024 * 1024,
+        )
+
+
+def test_photo_count_enforces_limit() -> None:
+    validate_photo_count(4, 5)
+    with pytest.raises(ValueError, match="не больше 5"):
+        validate_photo_count(5, 5)
