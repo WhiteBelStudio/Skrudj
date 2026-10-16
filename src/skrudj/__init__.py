@@ -1,0 +1,1 @@
+"""Skrudj marketplace application."""
