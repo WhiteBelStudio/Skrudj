@@ -27,3 +27,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["skrudj"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/skrudj/__main__.py" = ["I001"]
