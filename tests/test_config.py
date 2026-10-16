@@ -2,7 +2,7 @@
 
 import pytest
 
-from skrudj.config import Settings
+from skrudj.config import DEFAULT_DATABASE_URL, Settings
 
 
 def test_safe_defaults_enable_broadcast_dry_run() -> None:
@@ -11,6 +11,12 @@ def test_safe_defaults_enable_broadcast_dry_run() -> None:
     assert settings.broadcast_dry_run is True
     assert settings.broadcast_batch_size == 20
     assert settings.max_photos_per_listing == 5
+
+
+def test_blank_database_url_uses_safe_sqlite_default() -> None:
+    settings = Settings(_env_file=None, database_url="  ")
+
+    assert settings.database_url == DEFAULT_DATABASE_URL
 
 
 def test_admin_id_lists_are_parsed() -> None:
