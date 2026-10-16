@@ -2,7 +2,7 @@
 
 import asyncio
 
-from .main import run
+from skrudj.main import run
 
 
 if __name__ == "__main__":
