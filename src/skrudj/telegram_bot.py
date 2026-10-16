@@ -267,14 +267,26 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Название", callback_data=f"listing_field:{listing_id}:title"),
-                    InlineKeyboardButton(text="Категория", callback_data=f"listing_field:{listing_id}:category"),
+                    InlineKeyboardButton(
+                        text="Название", callback_data=f"listing_field:{listing_id}:title"
+                    ),
+                    InlineKeyboardButton(
+                        text="Категория", callback_data=f"listing_field:{listing_id}:category"
+                    ),
                 ],
                 [
-                    InlineKeyboardButton(text="Описание", callback_data=f"listing_field:{listing_id}:description"),
-                    InlineKeyboardButton(text="Цена", callback_data=f"listing_field:{listing_id}:price"),
+                    InlineKeyboardButton(
+                        text="Описание", callback_data=f"listing_field:{listing_id}:description"
+                    ),
+                    InlineKeyboardButton(
+                        text="Цена", callback_data=f"listing_field:{listing_id}:price"
+                    ),
                 ],
-                [InlineKeyboardButton(text="Город", callback_data=f"listing_field:{listing_id}:city")],
+                [
+                    InlineKeyboardButton(
+                        text="Город", callback_data=f"listing_field:{listing_id}:city"
+                    )
+                ],
             ]
         )
         await callback.message.answer("Что хотите изменить?", reply_markup=keyboard)
@@ -319,7 +331,12 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
         data = await state.get_data()
         field = data["field"]
         raw_value = (message.text or "").strip()
-        limits = {"title": (3, 120), "category": (1, 80), "description": (10, 2000), "city": (1, 100)}
+        limits = {
+            "title": (3, 120),
+            "category": (1, 80),
+            "description": (10, 2000),
+            "city": (1, 100),
+        }
         value: str | Decimal = raw_value
 
         if field == "price":
@@ -334,13 +351,18 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 or price > Decimal("9999999999.99")
                 or price.as_tuple().exponent < -2
             ):
-                await message.answer("Цена должна быть положительной, не больше 9 999 999 999,99 ₽ и с максимум двумя знаками после запятой.")
+                await message.answer(
+                    "Цена должна быть положительной, не больше 9 999 999 999,99 ₽ "
+                    "и с максимум двумя знаками после запятой."
+                )
                 return
             value = price.quantize(Decimal("0.01"))
         else:
             minimum, maximum = limits[field]
             if not minimum <= len(raw_value) <= maximum:
-                await message.answer(f"Длина значения должна быть от {minimum} до {maximum} символов.")
+                await message.answer(
+                    f"Длина значения должна быть от {minimum} до {maximum} символов."
+                )
                 return
 
         async with session_factory() as session:
@@ -353,7 +375,10 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             )
         await state.clear()
         if listing is None:
-            await message.answer("Объявление не найдено или больше вам не принадлежит.", reply_markup=MAIN_MENU)
+            await message.answer(
+                "Объявление не найдено или больше вам не принадлежит.",
+                reply_markup=MAIN_MENU,
+            )
             return
         await message.answer(
             f"✅ Объявление #{listing.id} обновлено и отправлено на повторную модерацию.",
@@ -369,7 +394,10 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Да, удалить", callback_data=f"listing_delete_confirm:{listing_id}"),
+                    InlineKeyboardButton(
+                        text="Да, удалить",
+                        callback_data=f"listing_delete_confirm:{listing_id}",
+                    ),
                     InlineKeyboardButton(text="Отмена", callback_data="listing_delete_cancel"),
                 ]
             ]
@@ -395,7 +423,9 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 session, listing_id=listing_id, seller_telegram_id=callback.from_user.id
             )
         await callback.message.answer(
-            "🗑 Объявление удалено." if deleted else "Объявление не найдено или не принадлежит вам.",
+            "🗑 Объявление удалено."
+            if deleted
+            else "Объявление не найдено или не принадлежит вам.",
             reply_markup=MAIN_MENU,
         )
         await callback.answer()
