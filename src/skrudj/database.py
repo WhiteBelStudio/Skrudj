@@ -1,8 +1,9 @@
-"""Database engine, user model, and profile persistence helpers."""
+"""Database engine, user and listing models, and persistence helpers."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, String, select
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -30,6 +31,26 @@ class TelegramUser(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
+    )
+
+
+class Listing(Base):
+    """A marketplace listing submitted by a Telegram user."""
+
+    __tablename__ = "listings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    seller_telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("telegram_users.telegram_id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
 
@@ -85,3 +106,34 @@ async def get_telegram_user(session: AsyncSession, telegram_id: int) -> Telegram
         select(TelegramUser).where(TelegramUser.telegram_id == telegram_id)
     )
     return result.scalar_one_or_none()
+
+
+async def create_listing(
+    session: AsyncSession,
+    *,
+    seller_telegram_id: int,
+    title: str,
+    category: str,
+    description: str,
+    price: Decimal,
+    city: str,
+) -> Listing:
+    """Persist a validated listing and leave it pending moderation."""
+    listing = Listing(
+        seller_telegram_id=seller_telegram_id,
+        title=title,
+        category=category,
+        description=description,
+        price=price,
+        city=city,
+        status="pending",
+    )
+    session.add(listing)
+    await session.commit()
+    await session.refresh(listing)
+    return listing
+
+
+async def get_listing(session: AsyncSession, listing_id: int) -> Listing | None:
+    """Return one listing by its database ID."""
+    return await session.get(Listing, listing_id)
