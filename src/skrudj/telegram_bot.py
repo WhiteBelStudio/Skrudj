@@ -114,7 +114,9 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
     async def listing_title_handler(message: Message, state: FSMContext) -> None:
         title = (message.text or "").strip()
         if not 3 <= len(title) <= 120:
-            await message.answer("Название должно содержать от 3 до 120 символов. Попробуйте ещё раз.")
+            await message.answer(
+                "Название должно содержать от 3 до 120 символов. Попробуйте ещё раз."
+            )
             return
         await state.update_data(title=title)
         await state.set_state(ListingForm.category)
