@@ -1,7 +1,6 @@
 """Telegram administration commands for roles, blocks and statistics."""
 
 import logging
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 
