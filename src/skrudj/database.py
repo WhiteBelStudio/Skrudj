@@ -54,6 +54,24 @@ class Listing(Base):
     )
 
 
+
+
+class ListingPhoto(Base):
+    """Telegram-hosted image metadata attached to a listing."""
+
+    __tablename__ = "listing_photos"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    file_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_unique_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(nullable=False)
+    position: Mapped[int] = mapped_column(nullable=False)
+
+
 def make_engine(database_url: str | None = None):
     """Create an async SQLAlchemy engine for the configured database."""
     url = database_url or get_settings().database_url
@@ -117,8 +135,9 @@ async def create_listing(
     description: str,
     price: Decimal,
     city: str,
+    photos: list[dict[str, str | int]] | None = None,
 ) -> Listing:
-    """Persist a validated listing and leave it pending moderation."""
+    """Persist a listing and its validated photos, leaving it pending moderation."""
     listing = Listing(
         seller_telegram_id=seller_telegram_id,
         title=title,
@@ -129,6 +148,18 @@ async def create_listing(
         status="pending",
     )
     session.add(listing)
+    await session.flush()
+    for position, photo in enumerate(photos or [], start=1):
+        session.add(
+            ListingPhoto(
+                listing_id=listing.id,
+                file_id=str(photo["file_id"]),
+                file_unique_id=str(photo["file_unique_id"]),
+                mime_type=str(photo["mime_type"]),
+                size_bytes=int(photo["size_bytes"]),
+                position=position,
+            )
+        )
     await session.commit()
     await session.refresh(listing)
     return listing
