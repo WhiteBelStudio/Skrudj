@@ -16,6 +16,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from skrudj.admin import AccessGuardMiddleware, setup_admin_handlers
 from skrudj.config import get_settings
 from skrudj.database import (
     create_listing,
@@ -508,6 +509,9 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             reply_markup=MAIN_MENU,
         )
 
+    settings = get_settings()
+    router.message.outer_middleware(AccessGuardMiddleware(session_factory, settings))
+    router.callback_query.outer_middleware(AccessGuardMiddleware(session_factory, settings))
     dispatcher.include_router(router)
 
 
@@ -516,6 +520,7 @@ async def run_telegram_bot(token: str, session_factory) -> None:
     bot = Bot(token=token)
     dispatcher = Dispatcher()
     setup_telegram_handlers(dispatcher, session_factory)
+    setup_admin_handlers(dispatcher, session_factory, get_settings())
     try:
         logger.info("Starting Telegram bot polling.")
         await dispatcher.start_polling(bot)
