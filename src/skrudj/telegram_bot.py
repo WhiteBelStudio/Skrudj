@@ -24,7 +24,12 @@ from skrudj.database import (
     register_or_update_telegram_user,
     update_owned_listing,
 )
-from skrudj.listing_validation import parse_price, validate_text_field
+from skrudj.listing_validation import (
+    parse_price,
+    photo_metadata_from_message,
+    validate_photo_count,
+    validate_text_field,
+)
 from skrudj.notifications import notify_telegram_admins
 
 logger = logging.getLogger(__name__)
@@ -56,6 +61,7 @@ class ListingForm(StatesGroup):
     description = State()
     price = State()
     city = State()
+    photos = State()
 
 
 def _profile_text(user) -> str:
@@ -196,6 +202,20 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             await message.answer(str(exc))
             return
 
+        await state.update_data(city=city, photos=[])
+        await state.set_state(ListingForm.photos)
+        await message.answer(
+            "📷 Теперь отправьте фотографии товара. Поддерживаются JPG, PNG и WebP; "
+            f"до {get_settings().max_photos_per_listing} фото, каждое до "
+            f"{get_settings().max_upload_size_mb} МБ.\n\n"
+            "Когда закончите, отправьте /done. Если фото нет — /skip."
+        )
+
+    async def finish_listing_submission(message: Message, state: FSMContext) -> None:
+        if message.from_user is None:
+            await state.clear()
+            await message.answer("Не удалось определить аккаунт Telegram.")
+            return
         data = await state.get_data()
         async with session_factory() as session:
             await register_or_update_telegram_user(
@@ -212,7 +232,8 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 category=data["category"],
                 description=data["description"],
                 price=Decimal(data["price"]),
-                city=city,
+                city=data["city"],
+                photos=data.get("photos", []),
             )
 
         await state.clear()
@@ -224,8 +245,44 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             f"Категория: {listing.category}\n"
             f"Цена: {listing.price:.2f} ₽\n"
             f"Город: {listing.city}\n"
+            f"Фотографий: {len(data.get('photos', []))}\n"
             "Публикация станет доступна после проверки модератором.",
             reply_markup=MAIN_MENU,
+        )
+
+    @router.message(ListingForm.photos, F.photo | F.document)
+    async def listing_photo_handler(message: Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        photos = data.get("photos", [])
+        settings = get_settings()
+        try:
+            validate_photo_count(len(photos), settings.max_photos_per_listing)
+            photo = photo_metadata_from_message(message)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+
+        if any(item["file_unique_id"] == photo["file_unique_id"] for item in photos):
+            await message.answer("Это фото уже добавлено. Отправьте другое или /done.")
+            return
+
+        photos.append(photo)
+        await state.update_data(photos=photos)
+        await message.answer(
+            f"✅ Фото добавлено ({len(photos)}/{settings.max_photos_per_listing}). "
+            "Отправьте ещё или /done для завершения."
+        )
+
+    @router.message(ListingForm.photos, Command("done"))
+    @router.message(ListingForm.photos, Command("skip"))
+    async def listing_photos_finish_handler(message: Message, state: FSMContext) -> None:
+        await finish_listing_submission(message, state)
+
+    @router.message(ListingForm.photos)
+    async def listing_photos_invalid_handler(message: Message) -> None:
+        await message.answer(
+            "На этом шаге отправьте фото как изображение или файл JPG/PNG/WebP. "
+            "Завершить можно командой /done, пропустить фото — /skip."
         )
 
     @router.message(F.text == "📦 Мои объявления")
