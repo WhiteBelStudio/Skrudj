@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
-from skrudj.database import make_session_factory, register_or_update_telegram_user
+from skrudj.database import register_or_update_telegram_user
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ def _profile_text(user) -> str:
     display_name = " ".join(part for part in (user.first_name, user.last_name) if part).strip()
     username = f"@{user.username}" if user.username else "не указан"
     return (
-        "👤 <b>Мой профиль</b>\n\n"
+        "👤 Мой профиль\n\n"
         f"Имя: {display_name or 'не указано'}\n"
         f"Telegram: {username}\n"
-        f"ID: <code>{user.telegram_id}</code>\n\n"
+        f"ID: {user.telegram_id}\n\n"
         "Профиль создан автоматически по данным Telegram. "
         "Номер телефона и домашний адрес не запрашиваются."
     )
@@ -77,7 +77,7 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 last_name=message.from_user.last_name,
             )
 
-        await message.answer(_profile_text(user), reply_markup=MAIN_MENU, parse_mode="HTML")
+        await message.answer(_profile_text(user), reply_markup=MAIN_MENU)
 
     @router.message()
     async def fallback_handler(message: Message) -> None:
