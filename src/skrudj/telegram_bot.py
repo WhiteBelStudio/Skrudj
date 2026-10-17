@@ -37,11 +37,45 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
+WELCOME_TEXT = (
+    "🦆 Добро пожаловать в «Скрудж Макдак» — барахолку WhiteBelStudio!\n\n"
+    "Здесь можно искать товары и размещать собственные объявления. "
+    "Объявления проходят модерацию перед публикацией.\n\n"
+    "📌 Основные правила:\n"
+    "• Указывайте точные цену, описание и город.\n"
+    "• Размещайте только реальные и разрешённые к продаже товары.\n"
+    "• Не публикуйте чужие персональные данные и обманчивую информацию.\n"
+    "• Уважайте других пользователей; при проблеме обратитесь в поддержку.\n\n"
+    "Выберите действие в меню ниже. Полные правила доступны по кнопке «📜 Правила»."
+)
+
+RULES_TEXT = (
+    "📜 Правила барахолки «Скрудж Макдак»\n\n"
+    "1. Публикуйте только достоверные объявления о товарах, которые вы вправе продавать.\n"
+    "2. Указывайте корректные название, категорию, описание, цену и город.\n"
+    "3. Не размещайте запрещённые товары, мошеннические предложения, спам или дубли объявлений.\n"
+    "4. Не публикуйте пароли, платёжные данные, домашние адреса и другие чужие личные данные.\n"
+    "5. Используйте только фотографии, которые разрешено публиковать.\n"
+    "6. Объявления проходят модерацию; модератор может отклонить публикацию, нарушающую правила.\n"
+    "7. Общайтесь уважительно и не пытайтесь обмануть покупателей или продавцов.\n"
+    "8. Если заметили нарушение, обратитесь в поддержку.\n\n"
+    "Размещая объявление, вы подтверждаете, что информация точна и соответствует правилам."
+)
+
+HELP_TEXT = (
+    "ℹ️ Помощь по «Скрудж Макдак»\n\n"
+    "/start — открыть приветствие и главное меню.\n"
+    "/rules — прочитать правила.\n"
+    "/help — открыть эту справку.\n"
+    "/cancel — отменить текущее действие."
+)
+
 MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🛍️ Каталог"), KeyboardButton(text="➕ Разместить объявление")],
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="📦 Мои объявления")],
         [KeyboardButton(text="❤️ Избранное"), KeyboardButton(text="🆘 Поддержка")],
+        [KeyboardButton(text="📜 Правила"), KeyboardButton(text="ℹ️ Помощь")],
     ],
     resize_keyboard=True,
     input_field_placeholder="Выберите действие",
@@ -98,11 +132,19 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 last_name=message.from_user.last_name,
             )
 
-        await message.answer(
-            "🦆 Добро пожаловать в «Скрудж Макдак»!\n\n"
-            "Здесь можно искать товары и размещать объявления. Выберите действие.",
-            reply_markup=MAIN_MENU,
-        )
+        await message.answer(WELCOME_TEXT, reply_markup=MAIN_MENU)
+
+    @router.message(Command("rules"))
+    @router.message(F.text == "📜 Правила")
+    async def rules_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await message.answer(RULES_TEXT, reply_markup=MAIN_MENU)
+
+    @router.message(Command("help"))
+    @router.message(F.text == "ℹ️ Помощь")
+    async def help_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await message.answer(HELP_TEXT, reply_markup=MAIN_MENU)
 
     @router.message(F.text == "👤 Мой профиль")
     async def profile_handler(message: Message, state: FSMContext) -> None:
