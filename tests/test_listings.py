@@ -11,10 +11,10 @@ from skrudj.database import (
     ListingPhoto,
     create_listing,
     get_listing,
+    get_user_listings,
     make_session_factory,
     register_or_update_telegram_user,
     unpublish_owned_listing,
-    get_user_listings,
     update_owned_listing,
 )
 
