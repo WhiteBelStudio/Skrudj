@@ -31,6 +31,8 @@ from skrudj.listing_validation import (
     photo_metadata_from_message,
     validate_photo_count,
     validate_text_field,
+    validate_image_signature,
+    validate_image_metadata,
 )
 from skrudj.notifications import notify_telegram_admins
 
@@ -308,14 +310,32 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
         photos = data.get("photos", [])
         settings = get_settings()
         try:
-            validate_photo_count(len(photos), settings.max_photos_per_listing)
             photo = photo_metadata_from_message(message)
+            if any(item["file_unique_id"] == photo["file_unique_id"] for item in photos):
+                await message.answer("Это фото уже добавлено. Отправьте другое или /done.")
+                return
+            validate_photo_count(len(photos), settings.max_photos_per_listing)
+
+            # Verify the actual downloaded bytes, not only Telegram's MIME metadata.
+            downloaded = await message.bot.download(photo["file_id"])
+            if downloaded is None:
+                raise ValueError("Не удалось получить файл. Отправьте изображение ещё раз.")
+            image_bytes = downloaded.read()
+            validate_image_metadata(
+                mime_type=photo["mime_type"],
+                size_bytes=len(image_bytes),
+                max_size_bytes=settings.max_upload_size_mb * 1024 * 1024,
+            )
+            validate_image_signature(image_bytes, photo["mime_type"])
         except ValueError as exc:
             await message.answer(str(exc))
             return
-
-        if any(item["file_unique_id"] == photo["file_unique_id"] for item in photos):
-            await message.answer("Это фото уже добавлено. Отправьте другое или /done.")
+        except Exception:
+            logger.exception("Failed to download or validate listing image.")
+            await message.answer(
+                "Не удалось проверить изображение из-за временной ошибки. "
+                "Попробуйте отправить его ещё раз."
+            )
             return
 
         photos.append(photo)
