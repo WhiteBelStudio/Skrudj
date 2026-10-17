@@ -188,6 +188,47 @@ async def get_listing(session: AsyncSession, listing_id: int) -> Listing | None:
 
 
 
+async def get_seller_statistics(
+    session: AsyncSession, seller_telegram_id: int
+) -> dict[str, int]:
+    """Return listing counts for the requested seller only."""
+    total = await session.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(Listing.seller_telegram_id == seller_telegram_id)
+    ) or 0
+    pending = await session.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(
+            Listing.seller_telegram_id == seller_telegram_id,
+            Listing.status == "pending",
+        )
+    ) or 0
+    published = await session.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(
+            Listing.seller_telegram_id == seller_telegram_id,
+            Listing.status == "published",
+        )
+    ) or 0
+    rejected = await session.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(
+            Listing.seller_telegram_id == seller_telegram_id,
+            Listing.status == "rejected",
+        )
+    ) or 0
+    return {
+        "total": int(total),
+        "pending": int(pending),
+        "published": int(published),
+        "rejected": int(rejected),
+    }
+
+
 async def get_user_listings(
     session: AsyncSession, seller_telegram_id: int, *, limit: int = 20
 ) -> list[Listing]:
