@@ -37,7 +37,6 @@ def test_main_menu_exposes_rules_and_help() -> None:
     assert "👤 Мой профиль" in button_texts
 
 
-
 def test_seller_profile_shows_listing_statistics_without_private_contact_fields() -> None:
     from types import SimpleNamespace
 
