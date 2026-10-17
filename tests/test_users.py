@@ -53,6 +53,7 @@ async def test_registers_and_updates_telegram_profile() -> None:
     finally:
         await engine.dispose()
 
+
 @pytest.mark.asyncio
 async def test_seller_statistics_are_scoped_to_the_seller() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
