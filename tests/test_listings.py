@@ -49,6 +49,9 @@ async def test_creates_listing_pending_moderation() -> None:
             saved = await get_listing(session, listing.id)
             assert saved is not None
             assert saved.title == "Wireless headphones"
+            assert saved.category == "Electronics"
+            assert saved.description == "Wireless headphones in good condition."
+            assert saved.price == Decimal("1500.50")
             assert saved.seller_telegram_id == 987654
             assert saved.city == "Белореченск"
 
