@@ -13,6 +13,9 @@ from skrudj.database import (
     get_listing,
     make_session_factory,
     register_or_update_telegram_user,
+    unpublish_owned_listing,
+    get_user_listings,
+    update_owned_listing,
 )
 
 
@@ -83,5 +86,68 @@ async def test_creates_listing_pending_moderation() -> None:
             assert photos[0].file_id == "telegram-file-id"
             assert photos[0].mime_type == "image/jpeg"
             assert photos[0].position == 1
+    finally:
+        await engine.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_seller_can_unpublish_only_their_published_listing() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = make_session_factory(engine)
+        async with session_factory() as session:
+            for telegram_id, name in ((111, "Seller A"), (222, "Seller B")):
+                await register_or_update_telegram_user(
+                    session,
+                    telegram_id=telegram_id,
+                    username=None,
+                    first_name=name,
+                    last_name=None,
+                )
+
+            listing = await create_listing(
+                session,
+                seller_telegram_id=111,
+                title="Published item",
+                category="Books",
+                description="A published listing description.",
+                price=Decimal("100.00"),
+                city="Belorechensk",
+            )
+            listing.status = "published"
+            await session.commit()
+
+            assert await unpublish_owned_listing(
+                session, listing_id=listing.id, seller_telegram_id=222
+            ) is None
+            assert listing.status == "published"
+
+            unpublished = await unpublish_owned_listing(
+                session, listing_id=listing.id, seller_telegram_id=111
+            )
+            assert unpublished is not None
+            assert unpublished.status == "unpublished"
+
+            assert await unpublish_owned_listing(
+                session, listing_id=listing.id, seller_telegram_id=111
+            ) is None
+            seller_listings = await get_user_listings(session, 111)
+            assert len(seller_listings) == 1
+            assert seller_listings[0].status == "unpublished"
+
+            updated = await update_owned_listing(
+                session,
+                listing_id=listing.id,
+                seller_telegram_id=111,
+                field="title",
+                value="Updated title",
+            )
+            assert updated is not None
+            assert updated.title == "Updated title"
+            assert updated.status == "pending"
     finally:
         await engine.dispose()
