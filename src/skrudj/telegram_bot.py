@@ -21,6 +21,7 @@ from skrudj.config import get_settings
 from skrudj.database import (
     create_listing,
     delete_owned_listing,
+    get_seller_statistics,
     get_user_listings,
     register_or_update_telegram_user,
     update_owned_listing,
@@ -99,16 +100,21 @@ class ListingForm(StatesGroup):
     photos = State()
 
 
-def _profile_text(user) -> str:
-    """Format a compact profile without requesting sensitive contact details."""
+def _profile_text(user, seller_stats: dict[str, int]) -> str:
+    """Format a seller profile without requesting sensitive contact details."""
     display_name = " ".join(part for part in (user.first_name, user.last_name) if part).strip()
     username = f"@{user.username}" if user.username else "не указан"
     return (
-        "👤 Мой профиль\n\n"
+        "👤 Профиль продавца\n\n"
         f"Имя: {display_name or 'не указано'}\n"
         f"Telegram: {username}\n"
-        f"ID: {user.telegram_id}\n\n"
-        "Профиль создан автоматически по данным Telegram. "
+        f"ID пользователя: {user.telegram_id}\n\n"
+        "📦 Статистика объявлений\n"
+        f"Всего: {seller_stats['total']}\n"
+        f"На модерации: {seller_stats['pending']}\n"
+        f"Опубликовано: {seller_stats['published']}\n"
+        f"Отклонено: {seller_stats['rejected']}\n\n"
+        "Профиль создаётся автоматически по данным Telegram. "
         "Номер телефона и домашний адрес не запрашиваются."
     )
 
@@ -162,7 +168,10 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 last_name=message.from_user.last_name,
             )
 
-        await message.answer(_profile_text(user), reply_markup=MAIN_MENU)
+        async with session_factory() as session:
+            seller_stats = await get_seller_statistics(session, message.from_user.id)
+
+        await message.answer(_profile_text(user, seller_stats), reply_markup=MAIN_MENU)
 
     @router.message(Command("cancel"))
     async def cancel_listing_handler(message: Message, state: FSMContext) -> None:
