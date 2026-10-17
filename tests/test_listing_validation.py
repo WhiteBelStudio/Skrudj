@@ -7,6 +7,7 @@ import pytest
 from skrudj.listing_validation import (
     parse_price,
     validate_image_metadata,
+    validate_image_signature,
     validate_photo_count,
     validate_text_field,
 )
@@ -118,3 +119,32 @@ def test_photo_count_enforces_limit() -> None:
     validate_photo_count(4, 5)
     with pytest.raises(ValueError, match="не больше 5"):
         validate_photo_count(5, 5)
+
+
+
+@pytest.mark.parametrize(
+    ("data", "mime_type"),
+    [
+        (bytes((255, 216, 255)) + b"fake-jpeg-payload", "image/jpeg"),
+        (bytes((137, 80, 78, 71, 13, 10, 26, 10)) + b"fake-png-payload", "image/png"),
+        (b"RIFF" + bytes(4) + b"WEBP" + b"fake-webp-payload", "image/webp"),
+    ],
+)
+def test_image_signature_matches_declared_format(data: bytes, mime_type: str) -> None:
+    validate_image_signature(data, mime_type)
+
+
+@pytest.mark.parametrize(
+    ("data", "mime_type"),
+    [
+        (b"not-an-image", "image/jpeg"),
+        (b"RIFF" + bytes(4) + b"WEBPpayload", "image/png"),
+        (bytes((255, 216, 255)) + b"payload", "image/webp"),
+        (b"", "image/png"),
+    ],
+)
+def test_image_signature_rejects_mismatched_or_invalid_content(
+    data: bytes, mime_type: str
+) -> None:
+    with pytest.raises(ValueError, match="не похоже"):
+        validate_image_signature(data, mime_type)
