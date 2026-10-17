@@ -146,5 +146,5 @@ def test_image_signature_matches_declared_format(data: bytes, mime_type: str) ->
 def test_image_signature_rejects_mismatched_or_invalid_content(
     data: bytes, mime_type: str
 ) -> None:
-    with pytest.raises(ValueError, match="не похоже"):
+    with pytest.raises(ValueError, match="не похож"):
         validate_image_signature(data, mime_type)
