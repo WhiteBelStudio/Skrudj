@@ -29,10 +29,10 @@ from skrudj.database import (
 from skrudj.listing_validation import (
     parse_price,
     photo_metadata_from_message,
+    validate_image_metadata,
+    validate_image_signature,
     validate_photo_count,
     validate_text_field,
-    validate_image_signature,
-    validate_image_metadata,
 )
 from skrudj.notifications import notify_telegram_admins
 
