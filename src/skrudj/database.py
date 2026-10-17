@@ -272,6 +272,27 @@ async def update_owned_listing(
     return listing
 
 
+async def unpublish_owned_listing(
+    session: AsyncSession, *, listing_id: int, seller_telegram_id: int
+) -> Listing | None:
+    """Unpublish a seller-owned listing only when it is currently published."""
+    result = await session.execute(
+        select(Listing).where(
+            Listing.id == listing_id,
+            Listing.seller_telegram_id == seller_telegram_id,
+            Listing.status == "published",
+        )
+    )
+    listing = result.scalar_one_or_none()
+    if listing is None:
+        return None
+
+    listing.status = "unpublished"
+    await session.commit()
+    await session.refresh(listing)
+    return listing
+
+
 async def delete_owned_listing(
     session: AsyncSession, *, listing_id: int, seller_telegram_id: int
 ) -> bool:
