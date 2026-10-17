@@ -60,7 +60,7 @@ def validate_image_metadata(
 def validate_image_signature(data: bytes, expected_mime_type: str) -> None:
     """Verify image bytes match the declared JPEG, PNG, or WebP format."""
     detected_mime_type: str | None = None
-    if data.startswith(bytes((255, 216, 255)):
+    if data.startswith(bytes((255, 216, 255))):
         detected_mime_type = "image/jpeg"
     elif data.startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))):
         detected_mime_type = "image/png"
@@ -68,7 +68,9 @@ def validate_image_signature(data: bytes, expected_mime_type: str) -> None:
         detected_mime_type = "image/webp"
 
     if detected_mime_type is None or detected_mime_type != expected_mime_type:
-        raise ValueError("Файл не похож на заявленное изображение. Отправьте настоящий файл JPG, PNG или WebP.")
+        raise ValueError(
+            "Файл не похож на заявленное изображение. Отправьте настоящий файл JPG, PNG или WebP."
+        )
 
 def validate_photo_count(current_count: int, max_count: int) -> None:
     """Ensure the next photo will not exceed the configured listing limit."""
