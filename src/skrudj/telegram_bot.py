@@ -24,8 +24,8 @@ from skrudj.database import (
     get_seller_statistics,
     get_user_listings,
     register_or_update_telegram_user,
-    update_owned_listing,
     unpublish_owned_listing,
+    update_owned_listing,
 )
 from skrudj.listing_validation import (
     parse_price,
