@@ -25,6 +25,7 @@ from skrudj.database import (
     get_user_listings,
     register_or_update_telegram_user,
     update_owned_listing,
+    unpublish_owned_listing,
 )
 from skrudj.listing_validation import (
     parse_price,
@@ -372,25 +373,37 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             return
 
         await message.answer(f"📦 Ваши объявления: {len(listings)}")
+        status_labels = {
+            "pending": "⏳ На модерации",
+            "published": "🟢 Опубликовано",
+            "rejected": "🔴 Отклонено",
+            "unpublished": "⏸ Снято с публикации",
+        }
         for listing in listings:
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="✏️ Изменить",
-                            callback_data=f"listing_edit:{listing.id}",
-                        ),
-                        InlineKeyboardButton(
-                            text="🗑 Удалить",
-                            callback_data=f"listing_delete:{listing.id}",
-                        ),
-                    ]
-                ]
+            action_row = [
+                InlineKeyboardButton(
+                    text="✏️ Изменить",
+                    callback_data=f"listing_edit:{listing.id}",
+                ),
+            ]
+            if listing.status == "published":
+                action_row.append(
+                    InlineKeyboardButton(
+                        text="⏸ Снять с публикации",
+                        callback_data=f"listing_unpublish:{listing.id}",
+                    )
+                )
+            action_row.append(
+                InlineKeyboardButton(
+                    text="🗑 Удалить",
+                    callback_data=f"listing_delete:{listing.id}",
+                )
             )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[action_row])
             await message.answer(
                 f"#{listing.id} · {listing.title}\n"
                 f"Цена: {listing.price:.2f} ₽ · {listing.city}\n"
-                f"Статус: {listing.status}",
+                f"Статус: {status_labels.get(listing.status, listing.status)}",
                 reply_markup=keyboard,
             )
 
@@ -520,6 +533,35 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             f"✅ Объявление #{listing.id} обновлено и отправлено на повторную модерацию.",
             reply_markup=MAIN_MENU,
         )
+
+    @router.callback_query(F.data.startswith("listing_unpublish:"))
+    async def listing_unpublish_handler(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось снять объявление с публикации.", show_alert=True)
+            return
+        try:
+            listing_id = int(callback.data.split(":", 1)[1])
+        except (ValueError, AttributeError):
+            await callback.answer("Некорректный номер объявления.", show_alert=True)
+            return
+        async with session_factory() as session:
+            listing = await unpublish_owned_listing(
+                session,
+                listing_id=listing_id,
+                seller_telegram_id=callback.from_user.id,
+            )
+        if listing is None:
+            await callback.answer(
+                "Объявление не найдено, не принадлежит вам или уже не опубликовано.",
+                show_alert=True,
+            )
+            return
+        await callback.message.answer(
+            f"⏸ Объявление #{listing.id} снято с публикации. "
+            "Оно останется в разделе «Мои объявления».",
+            reply_markup=MAIN_MENU,
+        )
+        await callback.answer("Публикация остановлена.")
 
     @router.callback_query(F.data.startswith("listing_delete:"))
     async def listing_delete_start_handler(callback: CallbackQuery) -> None:
