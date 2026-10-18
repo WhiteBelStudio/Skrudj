@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from skrudj.database import (
     Base,
     Favorite,
-    ListingReport,
     create_listing,
     create_listing_report,
     get_pending_listing_reports,
