@@ -250,9 +250,20 @@ async def test_catalog_search_returns_only_published_matching_listings_in_pages(
             matches = await search_published_listings(session, query="headphones", limit=10)
             assert [item.title for item in matches] == ["Wireless headphones"]
 
-            by_city = await search_published_listings(session, query="Белореченск", limit=10)
+            by_city = await search_published_listings(session, query="БЕЛОРЕЧЕНСК", limit=10)
             assert len(by_city) == 3
             assert all(item.status == "published" for item in by_city)
+
+            by_category = await search_published_listings(
+                session, query="electronics", limit=10
+            )
+            assert {item.title for item in by_category} == {
+                "Wireless headphones", "Camera"
+            }
+            by_description = await search_published_listings(
+                session, query="mystery story", limit=10
+            )
+            assert [item.title for item in by_description] == ["Novel"]
 
             first_page = await search_published_listings(session, query="", limit=2, offset=0)
             second_page = await search_published_listings(session, query="", limit=2, offset=2)
