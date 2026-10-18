@@ -81,3 +81,75 @@ async def test_search_pagination_and_invalid_parameters() -> None:
                 await search_published_listings(session, offset=-1)
     finally:
         await engine.dispose()
+
+@pytest.mark.asyncio
+async def test_search_matches_category_and_description_case_insensitively() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = make_session_factory(engine)
+        async with factory() as session:
+            await register_or_update_telegram_user(
+                session, telegram_id=7003, username=None, first_name="Seller", last_name=None
+            )
+            category_match = await create_listing(
+                session, seller_telegram_id=7003, title="Desk lamp", category="Электроника",
+                description="Рабочая настольная лампа.", price=Decimal("900.00"),
+                city="Белореченск",
+            )
+            description_match = await create_listing(
+                session, seller_telegram_id=7003, title="Vintage chair", category="Мебель",
+                description="Компактная ЭЛЕКТРОНИКА в комплекте.", price=Decimal("1200.00"),
+                city="Белореченск",
+            )
+            category_match.status = "published"
+            description_match.status = "published"
+            await session.commit()
+
+            by_category = await search_published_listings(session, query="  электроника ")
+            by_description = await search_published_listings(session, query="ЭЛЕКТРОНИКА")
+
+            assert {item.id for item in by_category} == {
+                category_match.id,
+                description_match.id,
+            }
+            assert {item.id for item in by_description} == {
+                category_match.id,
+                description_match.id,
+            }
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_treats_like_wildcards_as_literal_characters() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = make_session_factory(engine)
+        async with factory() as session:
+            await register_or_update_telegram_user(
+                session, telegram_id=7004, username=None, first_name="Seller", last_name=None
+            )
+            exact = await create_listing(
+                session, seller_telegram_id=7004, title="100% wool scarf", category="Clothes",
+                description="A scarf made of wool.", price=Decimal("500.00"),
+                city="Белореченск",
+            )
+            unrelated = await create_listing(
+                session, seller_telegram_id=7004, title="Wool scarf", category="Clothes",
+                description="A scarf made of wool.", price=Decimal("400.00"),
+                city="Белореченск",
+            )
+            exact.status = "published"
+            unrelated.status = "published"
+            await session.commit()
+
+            found = await search_published_listings(session, query="100%")
+
+            assert [item.id for item in found] == [exact.id]
+    finally:
+        await engine.dispose()
+
