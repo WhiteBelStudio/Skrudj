@@ -312,6 +312,36 @@ async def delete_owned_listing(
     return True
 
 
+async def moderate_listing(
+    session: AsyncSession, *, listing_id: int, decision: str
+) -> Listing | None:
+    """Approve or reject a listing that is still waiting for moderation."""
+    transitions = {"approve": "published", "reject": "rejected"}
+    if decision not in transitions:
+        raise ValueError("Unsupported moderation decision")
+
+    listing = await session.get(Listing, listing_id)
+    if listing is None or listing.status != "pending":
+        return None
+
+    listing.status = transitions[decision]
+    await session.commit()
+    await session.refresh(listing)
+    return listing
+
+
+async def mark_listing_sold(session: AsyncSession, *, listing_id: int) -> Listing | None:
+    """Mark a currently published listing as sold."""
+    listing = await session.get(Listing, listing_id)
+    if listing is None or listing.status != "published":
+        return None
+
+    listing.status = "sold"
+    await session.commit()
+    await session.refresh(listing)
+    return listing
+
+
 ADMIN_ROLES = frozenset({"user", "moderator", "admin"})
 
 
