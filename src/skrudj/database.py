@@ -187,6 +187,50 @@ async def get_listing(session: AsyncSession, listing_id: int) -> Listing | None:
     return await session.get(Listing, listing_id)
 
 
+async def search_published_listings(
+    session: AsyncSession,
+    *,
+    query: str = "",
+    limit: int = 5,
+    offset: int = 0,
+) -> list[Listing]:
+    """Search only published listings by title, category, description, or city."""
+    if not 1 <= limit <= 50:
+        raise ValueError("Listing search limit must be between 1 and 50")
+    if offset < 0:
+        raise ValueError("Listing search offset cannot be negative")
+
+    statement = select(Listing).where(Listing.status == "published")
+    normalized_query = query.strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            Listing.title.ilike(pattern)
+            | Listing.category.ilike(pattern)
+            | Listing.description.ilike(pattern)
+            | Listing.city.ilike(pattern)
+        )
+    result = await session.execute(
+        statement.order_by(Listing.created_at.desc(), Listing.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_listing_photos(
+    session: AsyncSession, listing_id: int, *, limit: int = 5
+) -> list[ListingPhoto]:
+    """Return photos for a listing in their saved display order."""
+    result = await session.execute(
+        select(ListingPhoto)
+        .where(ListingPhoto.listing_id == listing_id)
+        .order_by(ListingPhoto.position.asc(), ListingPhoto.id.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 
 async def get_seller_statistics(
     session: AsyncSession, seller_telegram_id: int
