@@ -9,8 +9,6 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from skrudj.config import Settings
-from skrudj.notifications import notify_seller_listing_event
-
 from skrudj.database import (
     get_admin_statistics,
     get_user_access,
@@ -19,6 +17,7 @@ from skrudj.database import (
     set_user_block,
     set_user_role,
 )
+from skrudj.notifications import notify_seller_listing_event
 
 logger = logging.getLogger(__name__)
 router = Router()
