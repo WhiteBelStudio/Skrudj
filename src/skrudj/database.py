@@ -203,12 +203,19 @@ async def search_published_listings(
     statement = select(Listing).where(Listing.status == "published")
     normalized_query = query.strip()
     if normalized_query:
-        pattern = f"%{normalized_query}%"
+        # Treat search input literally: SQL LIKE wildcards must not broaden a
+        # user's query into an accidental full-catalog search.
+        escaped_query = (
+            normalized_query.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        pattern = f"%{escaped_query}%"
         statement = statement.where(
-            Listing.title.ilike(pattern)
-            | Listing.category.ilike(pattern)
-            | Listing.description.ilike(pattern)
-            | Listing.city.ilike(pattern)
+            Listing.title.ilike(pattern, escape="\\")
+            | Listing.category.ilike(pattern, escape="\\")
+            | Listing.description.ilike(pattern, escape="\\")
+            | Listing.city.ilike(pattern, escape="\\")
         )
     result = await session.execute(
         statement.order_by(Listing.created_at.desc(), Listing.id.desc())
