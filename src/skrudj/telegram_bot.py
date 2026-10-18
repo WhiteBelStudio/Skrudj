@@ -378,6 +378,7 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             "published": "🟢 Опубликовано",
             "rejected": "🔴 Отклонено",
             "unpublished": "⏸ Снято с публикации",
+            "sold": "🎉 Продано",
         }
         for listing in listings:
             action_row = [
