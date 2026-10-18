@@ -9,9 +9,13 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from skrudj.config import Settings
+from skrudj.notifications import notify_seller_listing_event
+
 from skrudj.database import (
     get_admin_statistics,
     get_user_access,
+    mark_listing_sold,
+    moderate_listing,
     set_user_block,
     set_user_role,
 )
@@ -91,13 +95,22 @@ def setup_admin_handlers(dispatcher, session_factory, settings: Settings) -> Non
             "/stats — статистика проекта",
             "/block ID причина — заблокировать пользователя",
             "/unblock ID — снять блокировку",
+            "/approve ID — одобрить объявление",
+            "/reject ID причина — отклонить объявление",
+            "/sold ID — отметить объявление проданным",
         ]
         if level == "root":
             commands.append("/role ID user|moderator|admin — назначить роль")
         if level in {"root", "admin"}:
             await message.answer("\n".join(commands))
         else:
-            await message.answer("🛠 Панель модератора\n/stats — статистика проекта")
+            await message.answer(
+                "🛠 Панель модератора\n"
+                "/stats — статистика проекта\n"
+                "/approve ID — одобрить объявление\n"
+                "/reject ID причина — отклонить объявление\n"
+                "/sold ID — отметить объявление проданным"
+            )
 
     @router.message(Command("stats"))
     async def stats_handler(message: Message) -> None:
@@ -200,6 +213,88 @@ def setup_admin_handlers(dispatcher, session_factory, settings: Settings) -> Non
         async with session_factory() as session:
             await set_user_block(session, telegram_id=target_id, blocked=False)
         await message.answer(f"✅ Блокировка пользователя {target_id} снята.")
+
+
+    @router.message(Command("approve"))
+    async def approve_listing_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        level = await _access_level(session_factory, message.from_user.id, settings)
+        if level not in {"root", "admin", "moderator"}:
+            await message.answer("⛔ Недостаточно прав для модерации объявлений.")
+            return
+        parts = (message.text or "").split()
+        if len(parts) != 2:
+            await message.answer("Формат: /approve ID")
+            return
+        try:
+            listing_id = _parse_target_id(parts[1])
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        async with session_factory() as session:
+            listing = await moderate_listing(session, listing_id=listing_id, decision="approve")
+        if listing is None:
+            await message.answer("Объявление не найдено или уже не ожидает модерации.")
+            return
+        notified = await notify_seller_listing_event(message.bot, listing, "approved")
+        suffix = "" if notified else " Уведомление продавцу отправить не удалось."
+        await message.answer(f"✅ Объявление #{listing.id} опубликовано.{suffix}")
+
+    @router.message(Command("reject"))
+    async def reject_listing_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        level = await _access_level(session_factory, message.from_user.id, settings)
+        if level not in {"root", "admin", "moderator"}:
+            await message.answer("⛔ Недостаточно прав для модерации объявлений.")
+            return
+        parts = (message.text or "").split(maxsplit=2)
+        if len(parts) < 3 or not parts[2].strip():
+            await message.answer("Формат: /reject ID причина отклонения")
+            return
+        try:
+            listing_id = _parse_target_id(parts[1])
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        reason = parts[2].strip()[:500]
+        async with session_factory() as session:
+            listing = await moderate_listing(session, listing_id=listing_id, decision="reject")
+        if listing is None:
+            await message.answer("Объявление не найдено или уже не ожидает модерации.")
+            return
+        notified = await notify_seller_listing_event(
+            message.bot, listing, "rejected", reason=reason
+        )
+        suffix = "" if notified else " Уведомление продавцу отправить не удалось."
+        await message.answer(f"🔴 Объявление #{listing.id} отклонено.{suffix}")
+
+    @router.message(Command("sold"))
+    async def sold_listing_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        level = await _access_level(session_factory, message.from_user.id, settings)
+        if level not in {"root", "admin", "moderator"}:
+            await message.answer("⛔ Недостаточно прав для изменения статуса объявления.")
+            return
+        parts = (message.text or "").split()
+        if len(parts) != 2:
+            await message.answer("Формат: /sold ID")
+            return
+        try:
+            listing_id = _parse_target_id(parts[1])
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        async with session_factory() as session:
+            listing = await mark_listing_sold(session, listing_id=listing_id)
+        if listing is None:
+            await message.answer("Объявление не найдено или не опубликовано.")
+            return
+        notified = await notify_seller_listing_event(message.bot, listing, "sold")
+        suffix = "" if notified else " Уведомление продавцу отправить не удалось."
+        await message.answer(f"🎉 Объявление #{listing.id} отмечено как проданное.{suffix}")
 
     router.message.outer_middleware(AccessGuardMiddleware(session_factory, settings))
     router.callback_query.outer_middleware(AccessGuardMiddleware(session_factory, settings))
