@@ -16,6 +16,7 @@ from skrudj.database import (
     mark_listing_sold,
     moderate_listing,
     register_or_update_telegram_user,
+    search_published_listings,
     unpublish_owned_listing,
     update_owned_listing,
 )
@@ -205,5 +206,76 @@ async def test_listing_can_be_rejected_only_while_pending() -> None:
             )
             assert rejected is not None and rejected.status == "rejected"
             assert await mark_listing_sold(session, listing_id=listing.id) is None
+    finally:
+        await engine.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_returns_only_published_matching_listings_in_pages() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = make_session_factory(engine)
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session, telegram_id=555, username=None, first_name="Seller", last_name=None
+            )
+            listings = []
+            for title, category, description, city, status in (
+                ("Wireless headphones", "Electronics", "Bluetooth audio", "Белореченск", "published"),
+                ("Old headphones", "Electronics", "Used audio gear", "Краснодар", "pending"),
+                ("Desk lamp", "Home", "Wireless control lamp", "Белореченск", "published"),
+                ("Novel", "Books", "A mystery story", "Краснодар", "published"),
+                ("Phone case", "Accessories", "Protective case", "Белореченск", "published"),
+                ("Camera", "Electronics", "Digital camera", "Краснодар", "published"),
+            ):
+                listing = await create_listing(
+                    session,
+                    seller_telegram_id=555,
+                    title=title,
+                    category=category,
+                    description=description,
+                    price=Decimal("100.00"),
+                    city=city,
+                )
+                listing.status = status
+                listings.append(listing)
+            await session.commit()
+
+            matches = await search_published_listings(session, query="headphones", limit=10)
+            assert [item.title for item in matches] == ["Wireless headphones"]
+
+            by_city = await search_published_listings(session, query="Белореченск", limit=10)
+            assert len(by_city) == 3
+            assert all(item.status == "published" for item in by_city)
+
+            first_page = await search_published_listings(session, query="", limit=2, offset=0)
+            second_page = await search_published_listings(session, query="", limit=2, offset=2)
+            assert len(first_page) == 2
+            assert len(second_page) == 2
+            assert {item.id for item in first_page}.isdisjoint(
+                {item.id for item in second_page}
+            )
+            all_published = await search_published_listings(session, query="", limit=10)
+            assert len(all_published) == 5
+            assert all(item.status == "published" for item in all_published)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_validates_pagination_bounds() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = make_session_factory(engine)
+        async with session_factory() as session:
+            with pytest.raises(ValueError, match="limit"):
+                await search_published_listings(session, limit=0)
+            with pytest.raises(ValueError, match="offset"):
+                await search_published_listings(session, offset=-1)
     finally:
         await engine.dispose()
