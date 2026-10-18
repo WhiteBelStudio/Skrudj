@@ -224,7 +224,10 @@ async def test_catalog_search_returns_only_published_matching_listings_in_pages(
             )
             listings = []
             for title, category, description, city, status in (
-                ("Wireless headphones", "Electronics", "Bluetooth audio", "Белореченск", "published"),
+                (
+                    "Wireless headphones", "Electronics", "Bluetooth audio",
+                    "Белореченск", "published",
+                ),
                 ("Old headphones", "Electronics", "Used audio gear", "Краснодар", "pending"),
                 ("Desk lamp", "Home", "Wireless control lamp", "Белореченск", "published"),
                 ("Novel", "Books", "A mystery story", "Краснодар", "published"),
