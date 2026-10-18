@@ -60,3 +60,50 @@ async def notify_telegram_admins(
         len(admin_ids),
     )
     return delivered
+
+
+
+async def notify_seller_listing_event(
+    bot: Bot,
+    listing: Listing,
+    event: str,
+    *,
+    reason: str | None = None,
+) -> bool:
+    """Notify the listing owner about approval, rejection, or sale.
+
+    Telegram delivery errors are logged and never roll back a persisted status.
+    """
+    messages = {
+        "approved": (
+            "🟢 Ваше объявление опубликовано",
+            "Объявление прошло модерацию и теперь доступно покупателям.",
+        ),
+        "rejected": (
+            "🔴 Ваше объявление отклонено",
+            "Объявление не прошло модерацию. Проверьте правила и исправьте его перед повторной отправкой.",
+        ),
+        "sold": (
+            "🎉 Объявление отмечено как проданное",
+            "Статус объявления изменён на «Продано».",
+        ),
+    }
+    if event not in messages:
+        raise ValueError("Unsupported seller notification event")
+
+    title, details = messages[event]
+    text = f"{title}\n\nОбъявление #{listing.id}: {listing.title}\n{details}"
+    if event == "rejected" and reason:
+        text += f"\n\nПричина: {reason.strip()[:500]}"
+    try:
+        await bot.send_message(chat_id=listing.seller_telegram_id, text=text)
+    except Exception:
+        logger.warning(
+            "Could not notify seller %s about listing %s event %s.",
+            listing.seller_telegram_id,
+            listing.id,
+            event,
+            exc_info=True,
+        )
+        return False
+    return True
