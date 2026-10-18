@@ -75,10 +75,7 @@ async def test_delivery_failure_does_not_raise() -> None:
     assert bot.messages == []
 
 
-def test_unknown_seller_event_is_rejected() -> None:
+@pytest.mark.asyncio
+async def test_unknown_seller_event_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported seller notification event"):
-        import asyncio
-
-        asyncio.run(
-            notify_seller_listing_event(FakeBot(), make_listing(), "unknown")
-        )
+        await notify_seller_listing_event(FakeBot(), make_listing(), "unknown")
