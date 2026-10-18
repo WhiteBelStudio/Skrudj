@@ -200,29 +200,33 @@ async def search_published_listings(
     if offset < 0:
         raise ValueError("Listing search offset cannot be negative")
 
-    statement = select(Listing).where(Listing.status == "published")
-    normalized_query = query.strip()
-    if normalized_query:
-        # Treat search input literally: SQL LIKE wildcards must not broaden a
-        # user's query into an accidental full-catalog search.
-        escaped_query = (
-            normalized_query.replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-        )
-        pattern = f"%{escaped_query}%"
-        statement = statement.where(
-            Listing.title.ilike(pattern, escape="\\")
-            | Listing.category.ilike(pattern, escape="\\")
-            | Listing.description.ilike(pattern, escape="\\")
-            | Listing.city.ilike(pattern, escape="\\")
-        )
-    result = await session.execute(
-        statement.order_by(Listing.created_at.desc(), Listing.id.desc())
-        .offset(offset)
-        .limit(limit)
+    normalized_query = query.strip().casefold()
+    statement = (
+        select(Listing)
+        .where(Listing.status == "published")
+        .order_by(Listing.created_at.desc(), Listing.id.desc())
     )
-    return list(result.scalars().all())
+    result = await session.execute(statement)
+    listings = list(result.scalars().all())
+
+    if normalized_query:
+        # Python casefold provides Unicode-aware matching (including Cyrillic),
+        # unlike SQLite's default case-insensitive LIKE implementation.
+        listings = [
+            listing
+            for listing in listings
+            if any(
+                normalized_query in value.casefold()
+                for value in (
+                    listing.title,
+                    listing.category,
+                    listing.description,
+                    listing.city,
+                )
+            )
+        ]
+
+    return listings[offset : offset + limit]
 
 
 async def get_listing_photos(
