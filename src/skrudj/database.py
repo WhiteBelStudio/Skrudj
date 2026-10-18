@@ -194,27 +194,36 @@ async def search_published_listings(
     limit: int = 5,
     offset: int = 0,
 ) -> list[Listing]:
-    """Search only published listings by title, category, description, or city."""
+    """Search published listings with Unicode-aware matching and bounded memory."""
     if not 1 <= limit <= 50:
         raise ValueError("Listing search limit must be between 1 and 50")
     if offset < 0:
         raise ValueError("Listing search offset cannot be negative")
 
-    normalized_query = query.strip().casefold()
     statement = (
         select(Listing)
         .where(Listing.status == "published")
         .order_by(Listing.created_at.desc(), Listing.id.desc())
     )
-    result = await session.execute(statement)
-    listings = list(result.scalars().all())
+    normalized_query = query.strip().casefold()
+    if not normalized_query:
+        result = await session.execute(statement.offset(offset).limit(limit))
+        return list(result.scalars().all())
 
-    if normalized_query:
-        # Python casefold provides Unicode-aware matching (including Cyrillic),
-        # unlike SQLite's default case-insensitive LIKE implementation.
-        listings = [
-            listing
-            for listing in listings
+    # SQLite's built-in case-insensitive LIKE is ASCII-only. Scan ordered
+    # batches and casefold in Python so Cyrillic search works consistently
+    # across supported database engines without loading the whole catalog.
+    batch_size = 200
+    matching: list[Listing] = []
+    scanned = 0
+    target_count = offset + limit
+    while len(matching) < target_count:
+        result = await session.execute(statement.offset(scanned).limit(batch_size))
+        batch = list(result.scalars().all())
+        if not batch:
+            break
+
+        for listing in batch:
             if any(
                 normalized_query in value.casefold()
                 for value in (
@@ -223,10 +232,16 @@ async def search_published_listings(
                     listing.description,
                     listing.city,
                 )
-            )
-        ]
+            ):
+                matching.append(listing)
+                if len(matching) >= target_count:
+                    break
 
-    return listings[offset : offset + limit]
+        scanned += len(batch)
+        if len(batch) < batch_size:
+            break
+
+    return matching[offset : offset + limit]
 
 
 async def get_listing_photos(
