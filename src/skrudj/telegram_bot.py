@@ -23,6 +23,9 @@ from skrudj.database import (
     delete_owned_listing,
     get_listing_photos,
     get_seller_statistics,
+    get_user_favorite_listings,
+    toggle_favorite,
+    create_listing_report,
     get_user_listings,
     register_or_update_telegram_user,
     search_published_listings,
@@ -94,6 +97,12 @@ class CatalogForm(StatesGroup):
     """State for searching the published marketplace catalog."""
 
     query = State()
+
+
+class ReportForm(StatesGroup):
+    """Collect a concise reason for a listing report."""
+
+    reason = State()
 
 
 class ListingEditForm(StatesGroup):
@@ -674,10 +683,16 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 f"Объявление #{listing.id}"
             )
             photos = listing_photos.get(listing.id, [])
+            action_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="❤️ В избранное", callback_data=f"favorite_toggle:{listing.id}"),
+                    InlineKeyboardButton(text="🚩 Пожаловаться", callback_data=f"report_start:{listing.id}"),
+                ]
+            ])
             if photos:
-                await message.answer_photo(photos[0].file_id, caption=caption)
+                await message.answer_photo(photos[0].file_id, caption=caption, reply_markup=action_keyboard)
             else:
-                await message.answer(caption)
+                await message.answer(caption, reply_markup=action_keyboard)
 
         if has_more:
             keyboard = InlineKeyboardMarkup(
@@ -765,6 +780,130 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 "Для просмотра всего каталога отправьте /all."
             )
         await callback.answer()
+
+
+
+    @router.callback_query(F.data.startswith("favorite_toggle:"))
+    async def favorite_toggle_handler(callback: CallbackQuery) -> None:
+        if callback.from_user is None:
+            await callback.answer("Не удалось определить пользователя.", show_alert=True)
+            return
+        try:
+            listing_id = int(callback.data.split(":", 1)[1])
+            if listing_id <= 0:
+                raise ValueError
+        except (ValueError, AttributeError):
+            await callback.answer("Некорректный номер объявления.", show_alert=True)
+            return
+        async with session_factory() as session:
+            try:
+                added = await toggle_favorite(
+                    session, user_telegram_id=callback.from_user.id, listing_id=listing_id
+                )
+            except Exception:
+                logger.exception("Could not toggle favorite for listing %s", listing_id)
+                await callback.answer("Не удалось обновить избранное.", show_alert=True)
+                return
+        if added is None:
+            await callback.answer("Объявление больше недоступно.", show_alert=True)
+        elif added:
+            await callback.answer("Добавлено в избранное ❤️")
+        else:
+            await callback.answer("Удалено из избранного.")
+
+    @router.message(F.text == "❤️ Избранное")
+    async def favorites_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if message.from_user is None:
+            return
+        async with session_factory() as session:
+            listings = await get_user_favorite_listings(session, message.from_user.id)
+            photos_by_listing = {
+                listing.id: await get_listing_photos(session, listing.id, limit=1)
+                for listing in listings
+            }
+        if not listings:
+            await message.answer("❤️ Избранное пока пусто.", reply_markup=MAIN_MENU)
+            return
+        await message.answer(f"❤️ Ваше избранное: {len(listings)} объявл.")
+        for listing in listings:
+            caption = (
+                f"🛍️ {listing.title}\nКатегория: {listing.category}\n"
+                f"Цена: {listing.price:.2f} ₽\nГород: {listing.city}\n"
+                f"Объявление #{listing.id}"
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="💔 Убрать", callback_data=f"favorite_toggle:{listing.id}"),
+                InlineKeyboardButton(text="🚩 Пожаловаться", callback_data=f"report_start:{listing.id}"),
+            ]])
+            photos = photos_by_listing.get(listing.id, [])
+            if photos:
+                await message.answer_photo(photos[0].file_id, caption=caption, reply_markup=keyboard)
+            else:
+                await message.answer(caption, reply_markup=keyboard)
+
+    @router.callback_query(F.data.startswith("report_start:"))
+    async def report_start_handler(callback: CallbackQuery, state: FSMContext) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось начать жалобу.", show_alert=True)
+            return
+        try:
+            listing_id = int(callback.data.split(":", 1)[1])
+            if listing_id <= 0:
+                raise ValueError
+        except (ValueError, AttributeError):
+            await callback.answer("Некорректный номер объявления.", show_alert=True)
+            return
+        async with session_factory() as session:
+            from skrudj.database import get_listing
+            listing = await get_listing(session, listing_id)
+            if listing is None or listing.status != "published":
+                await callback.answer("Объявление уже недоступно.", show_alert=True)
+                return
+            if listing.seller_telegram_id == callback.from_user.id:
+                await callback.answer("Нельзя пожаловаться на собственное объявление.", show_alert=True)
+                return
+        await state.clear()
+        await state.update_data(report_listing_id=listing_id)
+        await state.set_state(ReportForm.reason)
+        await callback.message.answer(
+            f"🚩 Напишите причину жалобы на объявление #{listing_id} (до 500 символов). "
+            "Для отмены отправьте /cancel."
+        )
+        await callback.answer()
+
+    @router.message(ReportForm.reason, Command("cancel"))
+    async def report_cancel_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await message.answer("Жалоба отменена.", reply_markup=MAIN_MENU)
+
+    @router.message(ReportForm.reason)
+    async def report_reason_handler(message: Message, state: FSMContext) -> None:
+        reason = (message.text or "").strip()
+        if not reason or len(reason) > 500:
+            await message.answer("Причина должна содержать от 1 до 500 символов. Для отмены — /cancel.")
+            return
+        data = await state.get_data()
+        listing_id = data.get("report_listing_id")
+        if not isinstance(listing_id, int):
+            await state.clear()
+            await message.answer("Сессия жалобы истекла. Начните заново из каталога.")
+            return
+        async with session_factory() as session:
+            try:
+                report = await create_listing_report(
+                    session, reporter_telegram_id=message.from_user.id,
+                    listing_id=listing_id, reason=reason
+                )
+            except ValueError as exc:
+                await state.clear()
+                await message.answer(str(exc), reply_markup=MAIN_MENU)
+                return
+        await state.clear()
+        await message.answer(
+            f"✅ Жалоба #{report.id} принята и передана на проверку.",
+            reply_markup=MAIN_MENU,
+        )
 
     @router.message()
     async def fallback_handler(message: Message) -> None:

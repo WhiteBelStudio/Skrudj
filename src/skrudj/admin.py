@@ -11,6 +11,8 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from skrudj.config import Settings
 from skrudj.database import (
     get_admin_statistics,
+    get_pending_listing_reports,
+    resolve_listing_report,
     get_user_access,
     mark_listing_sold,
     moderate_listing,
@@ -294,6 +296,53 @@ def setup_admin_handlers(dispatcher, session_factory, settings: Settings) -> Non
         notified = await notify_seller_listing_event(message.bot, listing, "sold")
         suffix = "" if notified else " Уведомление продавцу отправить не удалось."
         await message.answer(f"🎉 Объявление #{listing.id} отмечено как проданное.{suffix}")
+
+
+
+    @router.message(Command("reports"))
+    async def reports_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        level = await _access_level(session_factory, message.from_user.id, settings)
+        if level not in {"root", "admin", "moderator"}:
+            await message.answer("⛔ Недостаточно прав для просмотра жалоб.")
+            return
+        async with session_factory() as session:
+            reports = await get_pending_listing_reports(session, limit=20)
+        if not reports:
+            await message.answer("✅ Ожидающих жалоб нет.")
+            return
+        for report in reports:
+            await message.answer(
+                f"🚩 Жалоба #{report.id} на объявление #{report.listing_id}\n"
+                f"От пользователя: {report.reporter_telegram_id}\n"
+                f"Причина: {report.reason}\n"
+                f"/reportdone {report.id} — отметить проверенной"
+            )
+
+    @router.message(Command("reportdone"))
+    async def report_done_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        level = await _access_level(session_factory, message.from_user.id, settings)
+        if level not in {"root", "admin", "moderator"}:
+            await message.answer("⛔ Недостаточно прав.")
+            return
+        parts = (message.text or "").split()
+        if len(parts) != 2:
+            await message.answer("Формат: /reportdone ID")
+            return
+        try:
+            report_id = _parse_target_id(parts[1])
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        async with session_factory() as session:
+            report = await resolve_listing_report(session, report_id=report_id)
+        if report is None:
+            await message.answer("Жалоба не найдена или уже проверена.")
+            return
+        await message.answer(f"✅ Жалоба #{report.id} отмечена проверенной.")
 
     router.message.outer_middleware(AccessGuardMiddleware(session_factory, settings))
     router.callback_query.outer_middleware(AccessGuardMiddleware(session_factory, settings))

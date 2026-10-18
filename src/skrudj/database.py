@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, func, select
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -87,6 +87,46 @@ class ListingPhoto(Base):
     mime_type: Mapped[str] = mapped_column(String(32), nullable=False)
     size_bytes: Mapped[int] = mapped_column(nullable=False)
     position: Mapped[int] = mapped_column(nullable=False)
+
+
+class Favorite(Base):
+    """A user's unique favorite marker for a listing."""
+
+    __tablename__ = "favorites"
+    __table_args__ = (UniqueConstraint("user_telegram_id", "listing_id", name="uq_favorite_user_listing"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("telegram_users.telegram_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class ListingReport(Base):
+    """User-submitted report about a published listing."""
+
+    __tablename__ = "listing_reports"
+    __table_args__ = (
+        UniqueConstraint("reporter_telegram_id", "listing_id", name="uq_reporter_listing"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    reporter_telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("telegram_users.telegram_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
 
 def make_engine(database_url: str | None = None):
@@ -484,3 +524,101 @@ async def get_admin_statistics(session: AsyncSession) -> dict[str, int]:
         "blocked_users": int(blocked),
         "staff": int(moderators),
     }
+
+
+async def toggle_favorite(
+    session: AsyncSession, *, user_telegram_id: int, listing_id: int
+) -> bool | None:
+    """Toggle a favorite for a published listing; return new state or None if unavailable."""
+    listing = await session.get(Listing, listing_id)
+    if listing is None or listing.status != "published":
+        return None
+    existing = await session.execute(
+        select(Favorite).where(
+            Favorite.user_telegram_id == user_telegram_id,
+            Favorite.listing_id == listing_id,
+        )
+    )
+    favorite = existing.scalar_one_or_none()
+    if favorite is not None:
+        await session.delete(favorite)
+        await session.commit()
+        return False
+    session.add(Favorite(user_telegram_id=user_telegram_id, listing_id=listing_id))
+    await session.commit()
+    return True
+
+
+async def get_user_favorite_listings(
+    session: AsyncSession, user_telegram_id: int, *, limit: int = 50
+) -> list[Listing]:
+    """Return a user's favorites that are still published."""
+    result = await session.execute(
+        select(Listing)
+        .join(Favorite, Favorite.listing_id == Listing.id)
+        .where(
+            Favorite.user_telegram_id == user_telegram_id,
+            Listing.status == "published",
+        )
+        .order_by(Favorite.created_at.desc(), Favorite.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def create_listing_report(
+    session: AsyncSession, *, reporter_telegram_id: int, listing_id: int, reason: str
+) -> ListingReport:
+    """Create one report per user/listing, with ownership and status checks."""
+    normalized_reason = reason.strip()
+    if not normalized_reason or len(normalized_reason) > 500:
+        raise ValueError("Причина жалобы должна содержать от 1 до 500 символов.")
+    listing = await session.get(Listing, listing_id)
+    if listing is None or listing.status != "published":
+        raise ValueError("Объявление не найдено или уже не опубликовано.")
+    if listing.seller_telegram_id == reporter_telegram_id:
+        raise ValueError("Нельзя пожаловаться на собственное объявление.")
+    existing = await session.execute(
+        select(ListingReport).where(
+            ListingReport.reporter_telegram_id == reporter_telegram_id,
+            ListingReport.listing_id == listing_id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise ValueError("Вы уже отправляли жалобу на это объявление.")
+    report = ListingReport(
+        reporter_telegram_id=reporter_telegram_id,
+        listing_id=listing_id,
+        reason=normalized_reason,
+        status="pending",
+    )
+    session.add(report)
+    await session.commit()
+    await session.refresh(report)
+    return report
+
+
+async def get_pending_listing_reports(
+    session: AsyncSession, *, limit: int = 20
+) -> list[ListingReport]:
+    """Return newest unresolved reports for staff review."""
+    result = await session.execute(
+        select(ListingReport)
+        .where(ListingReport.status == "pending")
+        .order_by(ListingReport.created_at.asc(), ListingReport.id.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def resolve_listing_report(
+    session: AsyncSession, *, report_id: int
+) -> ListingReport | None:
+    """Mark a pending report as reviewed; do not delete its audit trail."""
+    report = await session.get(ListingReport, report_id)
+    if report is None or report.status != "pending":
+        return None
+    report.status = "reviewed"
+    await session.commit()
+    await session.refresh(report)
+    return report
