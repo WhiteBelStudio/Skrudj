@@ -21,8 +21,10 @@ from skrudj.config import get_settings
 from skrudj.database import (
     create_listing,
     delete_owned_listing,
+    get_listing_photos,
     get_seller_statistics,
     get_user_listings,
+    search_published_listings,
     register_or_update_telegram_user,
     unpublish_owned_listing,
     update_owned_listing,
@@ -84,6 +86,12 @@ MAIN_MENU = ReplyKeyboardMarkup(
     resize_keyboard=True,
     input_field_placeholder="Выберите действие",
 )
+
+
+class CatalogForm(StatesGroup):
+    """State for searching the published marketplace catalog."""
+
+    query = State()
 
 
 class ListingEditForm(StatesGroup):
@@ -613,6 +621,147 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
     async def listing_delete_cancel_handler(callback: CallbackQuery) -> None:
         if callback.message is not None:
             await callback.message.answer("Удаление отменено.", reply_markup=MAIN_MENU)
+        await callback.answer()
+
+
+    async def send_catalog_results(
+        message: Message, state: FSMContext, query: str, offset: int = 0
+    ) -> None:
+        page_size = 5
+        async with session_factory() as session:
+            listings = await search_published_listings(
+                session, query=query, limit=page_size + 1, offset=offset
+            )
+            listing_photos = {
+                listing.id: await get_listing_photos(session, listing.id, limit=1)
+                for listing in listings[:page_size]
+            }
+
+        has_more = len(listings) > page_size
+        page = listings[:page_size]
+        if not page and offset == 0:
+            message_text = (
+                "🔎 По вашему запросу ничего не найдено."
+                if query
+                else "🛍️ Пока нет опубликованных объявлений."
+            )
+            await message.answer(message_text, reply_markup=MAIN_MENU)
+            return
+        if not page:
+            await message.answer("Больше объявлений нет.", reply_markup=MAIN_MENU)
+            return
+
+        heading = (
+            f"🔎 Результаты поиска: «{query[:100]}»"
+            if query
+            else "🛍️ Каталог опубликованных объявлений"
+        )
+        await message.answer(
+            f"{heading}\nПоказаны объявления {offset + 1}–{offset + len(page)}."
+        )
+        for listing in page:
+            description = listing.description.strip()
+            if len(description) > 400:
+                description = description[:397].rstrip() + "..."
+            caption = (
+                f"🛍️ {listing.title}\n"
+                f"Категория: {listing.category}\n"
+                f"Цена: {listing.price:.2f} ₽\n"
+                f"Город: {listing.city}\n\n"
+                f"{description}\n\n"
+                f"Объявление #{listing.id}"
+            )
+            photos = listing_photos.get(listing.id, [])
+            if photos:
+                await message.answer_photo(photos[0].file_id, caption=caption)
+            else:
+                await message.answer(caption)
+
+        if has_more:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="➡️ Следующие объявления",
+                            callback_data=f"catalog_next:{offset + page_size}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🔎 Новый поиск", callback_data="catalog_new_search"
+                        )
+                    ],
+                ]
+            )
+            await message.answer("Продолжить просмотр?", reply_markup=keyboard)
+        else:
+            await message.answer(
+                "Это все объявления по запросу.",
+                reply_markup=MAIN_MENU,
+            )
+
+    @router.message(F.text == "🛍️ Каталог")
+    async def catalog_start_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await state.set_state(CatalogForm.query)
+        await message.answer(
+            "🛍️ Каталог объявлений\n\n"
+            "Введите ключевое слово, категорию или город. "
+            "Поиск выполняется по названию, категории, описанию и городу.\n"
+            "Чтобы показать все опубликованные объявления, отправьте /all. "
+            "Для отмены — /cancel."
+        )
+
+    @router.message(CatalogForm.query, Command("all"))
+    async def catalog_all_handler(message: Message, state: FSMContext) -> None:
+        await state.update_data(catalog_query="")
+        await send_catalog_results(message, state, query="", offset=0)
+
+    @router.message(CatalogForm.query, Command("cancel"))
+    async def catalog_cancel_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await message.answer("Поиск отменён.", reply_markup=MAIN_MENU)
+
+    @router.message(CatalogForm.query)
+    async def catalog_search_handler(message: Message, state: FSMContext) -> None:
+        query = (message.text or "").strip()
+        if not query:
+            await message.answer("Введите текст для поиска или отправьте /all.")
+            return
+        if len(query) > 100:
+            await message.answer("Поисковый запрос должен быть не длиннее 100 символов.")
+            return
+        await state.update_data(catalog_query=query)
+        await send_catalog_results(message, state, query=query, offset=0)
+
+    @router.callback_query(F.data.startswith("catalog_next:"))
+    async def catalog_next_handler(callback: CallbackQuery, state: FSMContext) -> None:
+        if callback.message is None:
+            await callback.answer()
+            return
+        try:
+            offset = int(callback.data.split(":", 1)[1])
+            if offset < 0 or offset > 100000:
+                raise ValueError
+        except (ValueError, AttributeError):
+            await callback.answer("Некорректная страница каталога.", show_alert=True)
+            return
+        data = await state.get_data()
+        query = str(data.get("catalog_query", ""))
+        await send_catalog_results(callback.message, state, query=query, offset=offset)
+        await callback.answer()
+
+    @router.callback_query(F.data == "catalog_new_search")
+    async def catalog_new_search_handler(
+        callback: CallbackQuery, state: FSMContext
+    ) -> None:
+        if callback.message is not None:
+            await state.clear()
+            await state.set_state(CatalogForm.query)
+            await callback.message.answer(
+                "Введите новое ключевое слово, категорию или город.\n"
+                "Для просмотра всего каталога отправьте /all."
+            )
         await callback.answer()
 
     @router.message()
