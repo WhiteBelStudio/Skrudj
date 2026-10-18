@@ -73,7 +73,9 @@ HELP_TEXT = (
     "/start — открыть приветствие и главное меню.\n"
     "/rules — прочитать правила.\n"
     "/help — открыть эту справку.\n"
-    "/cancel — отменить текущее действие."
+    "/cancel — отменить текущее действие.\n"
+    "Каталог: откройте «🛍️ Каталог» для поиска по названию, категории, описанию или городу. "
+    "Отправьте /all внутри каталога, чтобы увидеть все опубликованные объявления."
 )
 
 MAIN_MENU = ReplyKeyboardMarkup(
@@ -187,7 +189,7 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
     @router.message(Command("cancel"))
     async def cancel_listing_handler(message: Message, state: FSMContext) -> None:
         await state.clear()
-        await message.answer("Создание объявления отменено.", reply_markup=MAIN_MENU)
+        await message.answer("Текущее действие отменено.", reply_markup=MAIN_MENU)
 
     @router.message(F.text == "➕ Разместить объявление")
     async def listing_start_handler(message: Message, state: FSMContext) -> None:
