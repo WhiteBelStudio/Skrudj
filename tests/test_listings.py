@@ -13,6 +13,8 @@ from skrudj.database import (
     get_listing,
     get_user_listings,
     make_session_factory,
+    mark_listing_sold,
+    moderate_listing,
     register_or_update_telegram_user,
     unpublish_owned_listing,
     update_owned_listing,
@@ -149,5 +151,59 @@ async def test_seller_can_unpublish_only_their_published_listing() -> None:
             assert updated is not None
             assert updated.title == "Updated title"
             assert updated.status == "pending"
+    finally:
+        await engine.dispose()
+
+
+
+@pytest.mark.asyncio
+async def test_listing_moderation_transitions_only_pending_listings() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = make_session_factory(engine)
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session, telegram_id=333, username=None, first_name="Seller", last_name=None
+            )
+            listing = await create_listing(
+                session, seller_telegram_id=333, title="Test item", category="Books",
+                description="A sufficiently long item description.", price=Decimal("25.00"),
+                city="Belorechensk",
+            )
+            approved = await moderate_listing(session, listing_id=listing.id, decision="approve")
+            assert approved is not None and approved.status == "published"
+            assert await moderate_listing(
+                session, listing_id=listing.id, decision="reject"
+            ) is None
+            sold = await mark_listing_sold(session, listing_id=listing.id)
+            assert sold is not None and sold.status == "sold"
+            assert await mark_listing_sold(session, listing_id=listing.id) is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_listing_can_be_rejected_only_while_pending() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = make_session_factory(engine)
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session, telegram_id=444, username=None, first_name="Seller", last_name=None
+            )
+            listing = await create_listing(
+                session, seller_telegram_id=444, title="Test item", category="Books",
+                description="A sufficiently long item description.", price=Decimal("25.00"),
+                city="Belorechensk",
+            )
+            rejected = await moderate_listing(
+                session, listing_id=listing.id, decision="reject"
+            )
+            assert rejected is not None and rejected.status == "rejected"
+            assert await mark_listing_sold(session, listing_id=listing.id) is None
     finally:
         await engine.dispose()
