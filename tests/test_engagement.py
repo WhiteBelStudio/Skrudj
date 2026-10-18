@@ -49,7 +49,9 @@ async def test_favorites_toggle_without_duplicates_and_only_published() -> None:
             assert await toggle_favorite(
                 session, user_telegram_id=202, listing_id=listing.id
             ) is False
-            assert await toggle_favorite(session, user_telegram_id=202, listing_id=listing.id) is True
+            assert await toggle_favorite(
+                session, user_telegram_id=202, listing_id=listing.id
+            ) is True
             favorites = await get_user_favorite_listings(session, 202)
             assert [item.id for item in favorites] == [listing.id]
             count = await session.scalar(select(Favorite).where(Favorite.user_telegram_id == 202))
