@@ -34,6 +34,7 @@ def test_main_menu_exposes_rules_and_help() -> None:
     assert "📜 Правила" in button_texts
     assert "ℹ️ Помощь" in button_texts
     assert "➕ Разместить объявление" in button_texts
+    assert "🛍️ Каталог" in button_texts
     assert "👤 Мой профиль" in button_texts
 
 
