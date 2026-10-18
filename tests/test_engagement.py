@@ -38,11 +38,17 @@ async def test_favorites_toggle_without_duplicates_and_only_published() -> None:
                 description="A listing description long enough.", price=Decimal("10"),
                 city="Belorechensk"
             )
-            assert await toggle_favorite(session, user_telegram_id=202, listing_id=listing.id) is None
+            assert await toggle_favorite(
+                session, user_telegram_id=202, listing_id=listing.id
+            ) is None
             listing.status = "published"
             await session.commit()
-            assert await toggle_favorite(session, user_telegram_id=202, listing_id=listing.id) is True
-            assert await toggle_favorite(session, user_telegram_id=202, listing_id=listing.id) is False
+            assert await toggle_favorite(
+                session, user_telegram_id=202, listing_id=listing.id
+            ) is True
+            assert await toggle_favorite(
+                session, user_telegram_id=202, listing_id=listing.id
+            ) is False
             assert await toggle_favorite(session, user_telegram_id=202, listing_id=listing.id) is True
             favorites = await get_user_favorite_listings(session, 202)
             assert [item.id for item in favorites] == [listing.id]

@@ -3,7 +3,17 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func, select
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -93,7 +103,11 @@ class Favorite(Base):
     """A user's unique favorite marker for a listing."""
 
     __tablename__ = "favorites"
-    __table_args__ = (UniqueConstraint("user_telegram_id", "listing_id", name="uq_favorite_user_listing"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_telegram_id", "listing_id", name="uq_favorite_user_listing"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_telegram_id: Mapped[int] = mapped_column(

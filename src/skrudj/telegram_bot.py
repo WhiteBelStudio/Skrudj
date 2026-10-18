@@ -23,12 +23,12 @@ from skrudj.database import (
     delete_owned_listing,
     get_listing_photos,
     get_seller_statistics,
-    get_user_favorite_listings,
-    toggle_favorite,
     create_listing_report,
+    get_user_favorite_listings,
     get_user_listings,
     register_or_update_telegram_user,
     search_published_listings,
+    toggle_favorite,
     unpublish_owned_listing,
     update_owned_listing,
 )
@@ -683,14 +683,24 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 f"Объявление #{listing.id}"
             )
             photos = listing_photos.get(listing.id, [])
-            action_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="❤️ В избранное", callback_data=f"favorite_toggle:{listing.id}"),
-                    InlineKeyboardButton(text="🚩 Пожаловаться", callback_data=f"report_start:{listing.id}"),
+            action_keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="❤️ В избранное",
+                            callback_data=f"favorite_toggle:{listing.id}",
+                        ),
+                        InlineKeyboardButton(
+                            text="🚩 Пожаловаться",
+                            callback_data=f"report_start:{listing.id}",
+                        ),
+                    ]
                 ]
-            ])
+            )
             if photos:
-                await message.answer_photo(photos[0].file_id, caption=caption, reply_markup=action_keyboard)
+                await message.answer_photo(
+                    photos[0].file_id, caption=caption, reply_markup=action_keyboard
+                )
             else:
                 await message.answer(caption, reply_markup=action_keyboard)
 
@@ -832,13 +842,25 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 f"Цена: {listing.price:.2f} ₽\nГород: {listing.city}\n"
                 f"Объявление #{listing.id}"
             )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="💔 Убрать", callback_data=f"favorite_toggle:{listing.id}"),
-                InlineKeyboardButton(text="🚩 Пожаловаться", callback_data=f"report_start:{listing.id}"),
-            ]])
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="💔 Убрать",
+                            callback_data=f"favorite_toggle:{listing.id}",
+                        ),
+                        InlineKeyboardButton(
+                            text="🚩 Пожаловаться",
+                            callback_data=f"report_start:{listing.id}",
+                        ),
+                    ]
+                ]
+            )
             photos = photos_by_listing.get(listing.id, [])
             if photos:
-                await message.answer_photo(photos[0].file_id, caption=caption, reply_markup=keyboard)
+                await message.answer_photo(
+                    photos[0].file_id, caption=caption, reply_markup=keyboard
+                )
             else:
                 await message.answer(caption, reply_markup=keyboard)
 
@@ -861,7 +883,9 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
                 await callback.answer("Объявление уже недоступно.", show_alert=True)
                 return
             if listing.seller_telegram_id == callback.from_user.id:
-                await callback.answer("Нельзя пожаловаться на собственное объявление.", show_alert=True)
+                await callback.answer(
+                    "Нельзя пожаловаться на собственное объявление.", show_alert=True
+                )
                 return
         await state.clear()
         await state.update_data(report_listing_id=listing_id)
@@ -881,7 +905,9 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
     async def report_reason_handler(message: Message, state: FSMContext) -> None:
         reason = (message.text or "").strip()
         if not reason or len(reason) > 500:
-            await message.answer("Причина должна содержать от 1 до 500 символов. Для отмены — /cancel.")
+            await message.answer(
+                "Причина должна содержать от 1 до 500 символов. Для отмены — /cancel."
+            )
             return
         data = await state.get_data()
         listing_id = data.get("report_listing_id")
