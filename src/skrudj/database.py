@@ -61,6 +61,23 @@ class UserAccess(Base):
     )
 
 
+class UserNotificationPreference(Base):
+    """Persist a user's opt-in choice for non-essential marketplace news."""
+
+    __tablename__ = "user_notification_preferences"
+
+    telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("telegram_users.telegram_id", ondelete="CASCADE"), primary_key=True
+    )
+    news_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+
 class Listing(Base):
     """A marketplace listing submitted by a Telegram user."""
 
@@ -239,6 +256,50 @@ async def get_telegram_user(session: AsyncSession, telegram_id: int) -> Telegram
         select(TelegramUser).where(TelegramUser.telegram_id == telegram_id)
     )
     return result.scalar_one_or_none()
+
+
+async def get_news_notifications_enabled(
+    session: AsyncSession, telegram_id: int
+) -> bool:
+    """Return whether a user accepts non-essential news; default is enabled."""
+    preference = await session.get(UserNotificationPreference, telegram_id)
+    return preference.news_enabled if preference is not None else True
+
+
+async def set_news_notifications_enabled(
+    session: AsyncSession, *, telegram_id: int, enabled: bool
+) -> UserNotificationPreference:
+    """Persist the user's explicit choice for marketplace news."""
+    user = await session.get(TelegramUser, telegram_id)
+    if user is None:
+        raise ValueError("Сначала откройте бота командой /start.")
+    preference = await session.get(UserNotificationPreference, telegram_id)
+    if preference is None:
+        preference = UserNotificationPreference(telegram_id=telegram_id, news_enabled=enabled)
+        session.add(preference)
+    else:
+        preference.news_enabled = enabled
+        preference.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(preference)
+    return preference
+
+
+async def get_news_subscriber_ids(session: AsyncSession) -> list[int]:
+    """Return users who have not opted out of non-essential marketplace news."""
+    result = await session.execute(
+        select(TelegramUser.telegram_id)
+        .outerjoin(
+            UserNotificationPreference,
+            UserNotificationPreference.telegram_id == TelegramUser.telegram_id,
+        )
+        .where(
+            (UserNotificationPreference.telegram_id.is_(None))
+            | (UserNotificationPreference.news_enabled.is_(True))
+        )
+        .order_by(TelegramUser.telegram_id.asc())
+    )
+    return [int(telegram_id) for telegram_id in result.scalars().all()]
 
 
 async def create_listing(
