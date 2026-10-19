@@ -1,6 +1,13 @@
 """Tests for Telegram welcome, rules, help, and main menu."""
 
-from skrudj.telegram_bot import HELP_TEXT, MAIN_MENU, RULES_TEXT, WELCOME_TEXT
+from skrudj.telegram_bot import (
+    HELP_TEXT,
+    MAIN_MENU,
+    RULES_TEXT,
+    WELCOME_TEXT,
+    _notification_settings_keyboard,
+    _notification_settings_text,
+)
 
 
 def test_welcome_explains_marketplace_and_moderation() -> None:
@@ -22,6 +29,9 @@ def test_help_lists_supported_basic_commands() -> None:
     assert "/rules" in HELP_TEXT
     assert "/help" in HELP_TEXT
     assert "/cancel" in HELP_TEXT
+    assert "/notifications" in HELP_TEXT
+    assert "/news_off" in HELP_TEXT
+    assert "/news_on" in HELP_TEXT
 
 
 def test_main_menu_exposes_rules_and_help() -> None:
@@ -36,6 +46,7 @@ def test_main_menu_exposes_rules_and_help() -> None:
     assert "➕ Разместить объявление" in button_texts
     assert "🛍️ Каталог" in button_texts
     assert "👤 Мой профиль" in button_texts
+    assert "🔔 Настройки уведомлений" in button_texts
 
 
 def test_seller_profile_shows_listing_statistics_without_private_contact_fields() -> None:
@@ -61,3 +72,24 @@ def test_seller_profile_shows_listing_statistics_without_private_contact_fields(
     assert "Отклонено: 1" in profile
     assert "@alex_seller" in profile
     assert "Номер телефона и домашний адрес не запрашиваются" in profile
+
+
+
+def test_notification_settings_explain_news_opt_out_without_disabling_service_messages() -> None:
+    enabled_text = _notification_settings_text(True)
+    disabled_text = _notification_settings_text(False)
+
+    assert "Новости и информационные рассылки: включены" in enabled_text
+    assert "Новости и информационные рассылки: отключены" in disabled_text
+    assert "Служебные сообщения" in enabled_text
+    assert "поддержку" in disabled_text
+
+
+def test_notification_keyboard_only_offers_the_opposite_setting() -> None:
+    enabled_keyboard = _notification_settings_keyboard(True)
+    disabled_keyboard = _notification_settings_keyboard(False)
+
+    assert enabled_keyboard.inline_keyboard[0][0].text == "🔕 Отключить новости"
+    assert enabled_keyboard.inline_keyboard[0][0].callback_data == "news_toggle:off"
+    assert disabled_keyboard.inline_keyboard[0][0].text == "🔔 Включить новости"
+    assert disabled_keyboard.inline_keyboard[0][0].callback_data == "news_toggle:on"
