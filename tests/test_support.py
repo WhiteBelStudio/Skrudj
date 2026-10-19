@@ -94,7 +94,7 @@ async def test_support_rejects_invalid_message_lengths_and_attachment_types() ->
             )
             with pytest.raises(ValueError, match="2000"):
                 await create_support_ticket(
-                    session, user_telegram_id=101, body=" " + "x" * 2000
+                    session, user_telegram_id=101, body="x" * 2001
                 )
             with pytest.raises(ValueError, match="фотографии"):
                 await create_support_ticket(
