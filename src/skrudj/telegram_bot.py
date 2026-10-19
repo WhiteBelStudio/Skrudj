@@ -23,10 +23,12 @@ from skrudj.database import (
     create_listing_report,
     delete_owned_listing,
     get_listing_photos,
+    get_news_notifications_enabled,
     get_seller_statistics,
     get_user_favorite_listings,
     get_user_listings,
     register_or_update_telegram_user,
+    set_news_notifications_enabled,
     search_published_listings,
     toggle_favorite,
     unpublish_owned_listing,
@@ -77,6 +79,9 @@ HELP_TEXT = (
     "/start — открыть приветствие и главное меню.\n"
     "/rules — прочитать правила.\n"
     "/help — открыть эту справку.\n"
+    "/notifications — настройки новостей и объявлений.\n"
+    "/news_off — отказаться от новостей и рекламных рассылок.\n"
+    "/news_on — снова получать новости.\n"
     "/cancel — отменить текущее действие.\n"
     "Каталог: откройте «🛍️ Каталог» для поиска по названию, категории, описанию или городу. "
     "Отправьте /all внутри каталога, чтобы увидеть все опубликованные объявления.\n"
@@ -89,6 +94,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
         [KeyboardButton(text="🛍️ Каталог"), KeyboardButton(text="➕ Разместить объявление")],
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="📦 Мои объявления")],
         [KeyboardButton(text="❤️ Избранное"), KeyboardButton(text="🆘 Поддержка")],
+        [KeyboardButton(text="🔔 Настройки уведомлений")],
         [KeyboardButton(text="📜 Правила"), KeyboardButton(text="ℹ️ Помощь")],
     ],
     resize_keyboard=True,
@@ -123,6 +129,31 @@ class ListingForm(StatesGroup):
     price = State()
     city = State()
     photos = State()
+
+
+def _notification_settings_text(news_enabled: bool) -> str:
+    """Explain the user's current news opt-in setting."""
+    status = "включены" if news_enabled else "отключены"
+    return (
+        "🔔 Настройки уведомлений\n\n"
+        f"Новости и информационные рассылки: {status}.\n\n"
+        "Это настройка только для необязательных новостей и рассылок. "
+        "Служебные сообщения по вашим объявлениям и обращениям в поддержку "
+        "продолжают приходить."
+    )
+
+
+def _notification_settings_keyboard(news_enabled: bool) -> InlineKeyboardMarkup:
+    """Offer only the action that changes the current preference."""
+    if news_enabled:
+        rows = [[InlineKeyboardButton(
+            text="🔕 Отключить новости", callback_data="news_toggle:off"
+        )]]
+    else:
+        rows = [[InlineKeyboardButton(
+            text="🔔 Включить новости", callback_data="news_toggle:on"
+        )]]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _profile_text(user, seller_stats: dict[str, int]) -> str:
@@ -197,6 +228,100 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
             seller_stats = await get_seller_statistics(session, message.from_user.id)
 
         await message.answer(_profile_text(user, seller_stats), reply_markup=MAIN_MENU)
+
+    @router.message(Command("notifications"))
+    @router.message(F.text == "🔔 Настройки уведомлений")
+    async def notification_settings_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if message.from_user is None:
+            await message.answer("Не удалось определить аккаунт Telegram.")
+            return
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session,
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name or "",
+                last_name=message.from_user.last_name,
+            )
+            news_enabled = await get_news_notifications_enabled(session, message.from_user.id)
+        await message.answer(
+            _notification_settings_text(news_enabled),
+            reply_markup=_notification_settings_keyboard(news_enabled),
+        )
+
+    @router.callback_query(F.data.startswith("news_toggle:"))
+    async def notification_toggle_handler(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.message is None:
+            await callback.answer("Не удалось изменить настройки.", show_alert=True)
+            return
+        action = callback.data.split(":", 1)[1]
+        if action not in {"on", "off"}:
+            await callback.answer("Неизвестная настройка.", show_alert=True)
+            return
+        enabled = action == "on"
+        user = callback.from_user
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session,
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name or "",
+                last_name=user.last_name,
+            )
+            await set_news_notifications_enabled(
+                session, telegram_id=user.id, enabled=enabled
+            )
+        await callback.message.edit_text(
+            _notification_settings_text(enabled),
+            reply_markup=_notification_settings_keyboard(enabled),
+        )
+        await callback.answer(
+            "Новости включены." if enabled else "Новости отключены."
+        )
+
+    @router.message(Command("news_off"))
+    async def news_off_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        user = message.from_user
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session,
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name or "",
+                last_name=user.last_name,
+            )
+            await set_news_notifications_enabled(
+                session, telegram_id=user.id, enabled=False
+            )
+        await message.answer(
+            "🔕 Новости и информационные рассылки отключены. "
+            "Служебные уведомления по объявлениям и поддержке сохраняются.",
+            reply_markup=MAIN_MENU,
+        )
+
+    @router.message(Command("news_on"))
+    async def news_on_handler(message: Message) -> None:
+        if message.from_user is None:
+            return
+        user = message.from_user
+        async with session_factory() as session:
+            await register_or_update_telegram_user(
+                session,
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name or "",
+                last_name=user.last_name,
+            )
+            await set_news_notifications_enabled(
+                session, telegram_id=user.id, enabled=True
+            )
+        await message.answer(
+            "🔔 Новости и информационные рассылки снова включены.",
+            reply_markup=MAIN_MENU,
+        )
 
     @router.message(Command("cancel"))
     async def cancel_listing_handler(message: Message, state: FSMContext) -> None:
