@@ -53,7 +53,9 @@ async def _staff_role(session_factory, settings: Settings, telegram_id: int) -> 
     return access.role
 
 
-async def _notify_staff(bot: Bot, settings: Settings, text: str, photo_id: str | None = None) -> int:
+async def _notify_staff(
+    bot: Bot, settings: Settings, text: str, photo_id: str | None = None
+) -> int:
     """Notify configured admins without undoing a persisted ticket on delivery errors."""
     delivered = 0
     for admin_id in sorted(settings.telegram_admin_id_set):
@@ -67,12 +69,21 @@ async def _notify_staff(bot: Bot, settings: Settings, text: str, photo_id: str |
                 )
             delivered += 1
         except Exception:
-            logger.warning("Could not deliver support notification to admin %s.", admin_id, exc_info=True)
+            logger.warning(
+                "Could not deliver support notification to admin %s.",
+                admin_id,
+                exc_info=True,
+            )
     return delivered
 
 
-async def _send_ticket_to_staff(message: Message, state: FSMContext, session_factory, settings: Settings,
-                                attachment_file_id: str | None = None) -> None:
+async def _send_ticket_to_staff(
+    message: Message,
+    state: FSMContext,
+    session_factory,
+    settings: Settings,
+    attachment_file_id: str | None = None,
+) -> None:
     if message.from_user is None:
         await state.clear()
         await message.answer("Не удалось определить аккаунт Telegram.")
@@ -141,12 +152,15 @@ async def support_cancel(message: Message, state: FSMContext) -> None:
 async def support_body(message: Message, state: FSMContext) -> None:
     body = (message.text or "").strip()
     if not body or len(body) > 2000:
-        await message.answer("Опишите проблему текстом от 1 до 2000 символов. Для отмены — /cancel.")
+        await message.answer(
+            "Опишите проблему текстом от 1 до 2000 символов. Для отмены — /cancel."
+        )
         return
     await state.update_data(support_body=body)
     await state.set_state(SupportForm.attachment)
     await message.answer(
-        "Можно приложить один скриншот как фото или отправить /skip, чтобы передать обращение без него."
+        "Можно приложить один скриншот как фото или отправить /skip, "
+        "чтобы передать обращение без него."
     )
 
 
@@ -182,7 +196,9 @@ async def my_support(message: Message, state: FSMContext) -> None:
     async with _session_factory() as session:
         tickets = await get_user_support_tickets(session, message.from_user.id)
     if not tickets:
-        await message.answer("У вас пока нет обращений. Нажмите «🆘 Поддержка», чтобы создать первое.")
+        await message.answer(
+            "У вас пока нет обращений. Нажмите «🆘 Поддержка», чтобы создать первое."
+        )
         return
     lines = ["🆘 Ваши обращения:"]
     for ticket in tickets:
@@ -214,11 +230,17 @@ async def support_history(message: Message, state: FSMContext) -> None:
             await message.answer("⛔ Это обращение принадлежит другому пользователю.")
             return
         history = await get_support_messages(session, ticket_id)
-    lines = [f"🧾 История обращения #{ticket.id} — {STATUS_LABELS.get(ticket.status, ticket.status)}"]
+    lines = [
+        f"🧾 История обращения #{ticket.id} — "
+        f"{STATUS_LABELS.get(ticket.status, ticket.status)}"
+    ]
     for item in history:
-        sender = "Вы" if item.sender_role == "user" and item.sender_telegram_id == message.from_user.id else (
-            "Поддержка" if item.sender_role == "staff" else f"Пользователь {item.sender_telegram_id}"
-        )
+        if item.sender_role == "user" and item.sender_telegram_id == message.from_user.id:
+            sender = "Вы"
+        elif item.sender_role == "staff":
+            sender = "Поддержка"
+        else:
+            sender = f"Пользователь {item.sender_telegram_id}"
         lines.append(f"\n{sender}: {item.body}")
         if item.attachment_file_id:
             lines.append("[В сообщении есть вложение-фото]")
@@ -366,7 +388,11 @@ async def support_close(message: Message, state: FSMContext) -> None:
             "Если проблема осталась, создайте новое обращение через меню.",
         )
     except Exception:
-        logger.warning("Could not notify user about support ticket closure %s.", ticket.id, exc_info=True)
+        logger.warning(
+            "Could not notify user about support ticket closure %s.",
+            ticket.id,
+            exc_info=True,
+        )
     await message.answer(f"🔒 Обращение #{ticket.id} закрыто.")
 
 
