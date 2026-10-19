@@ -99,6 +99,9 @@ def setup_admin_handlers(dispatcher, session_factory, settings: Settings) -> Non
             "/approve ID — одобрить объявление",
             "/reject ID причина — отклонить объявление",
             "/sold ID — отметить объявление проданным",
+            "/support_inbox — очередь обращений в поддержку",
+            "/support_reply ID текст — ответить пользователю",
+            "/support_close ID — закрыть обращение",
         ]
         if level == "root":
             commands.append("/role ID user|moderator|admin — назначить роль")
