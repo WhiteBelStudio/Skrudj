@@ -143,6 +143,50 @@ class ListingReport(Base):
     )
 
 
+
+class SupportTicket(Base):
+    """A user's support case with a durable status and message history."""
+
+    __tablename__ = "support_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("telegram_users.telegram_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(24), default="open", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SupportMessage(Base):
+    """One message in a support ticket, optionally carrying a Telegram photo."""
+
+    __tablename__ = "support_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey("support_tickets.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sender_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sender_role: Mapped[str] = mapped_column(String(16), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    attachment_file_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    attachment_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
 def make_engine(database_url: str | None = None):
     """Create an async SQLAlchemy engine for the configured database."""
     url = database_url or get_settings().database_url
@@ -636,3 +680,135 @@ async def resolve_listing_report(
     await session.commit()
     await session.refresh(report)
     return report
+
+
+
+async def create_support_ticket(
+    session: AsyncSession,
+    *,
+    user_telegram_id: int,
+    body: str,
+    attachment_file_id: str | None = None,
+    attachment_type: str | None = None,
+) -> SupportTicket:
+    """Create a support ticket and persist its initial user message."""
+    normalized_body = body.strip()
+    if not normalized_body or len(normalized_body) > 2000:
+        raise ValueError("Сообщение должно содержать от 1 до 2000 символов.")
+    if attachment_file_id and attachment_type != "photo":
+        raise ValueError("Поддерживаются только фотографии.")
+    ticket = SupportTicket(user_telegram_id=user_telegram_id, status="open")
+    session.add(ticket)
+    await session.flush()
+    session.add(
+        SupportMessage(
+            ticket_id=ticket.id,
+            sender_telegram_id=user_telegram_id,
+            sender_role="user",
+            body=normalized_body,
+            attachment_file_id=attachment_file_id,
+            attachment_type=attachment_type if attachment_file_id else None,
+        )
+    )
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket
+
+
+async def get_support_ticket(
+    session: AsyncSession, ticket_id: int
+) -> SupportTicket | None:
+    """Return a support ticket by its ID."""
+    return await session.get(SupportTicket, ticket_id)
+
+
+async def get_user_support_tickets(
+    session: AsyncSession, user_telegram_id: int, *, limit: int = 10
+) -> list[SupportTicket]:
+    """Return a user's newest support tickets."""
+    result = await session.execute(
+        select(SupportTicket)
+        .where(SupportTicket.user_telegram_id == user_telegram_id)
+        .order_by(SupportTicket.updated_at.desc(), SupportTicket.id.desc())
+        .limit(max(1, min(limit, 50)))
+    )
+    return list(result.scalars().all())
+
+
+async def get_open_support_tickets(
+    session: AsyncSession, *, limit: int = 20
+) -> list[SupportTicket]:
+    """Return support cases that still need attention."""
+    result = await session.execute(
+        select(SupportTicket)
+        .where(SupportTicket.status.in_(("open", "answered")))
+        .order_by(SupportTicket.updated_at.asc(), SupportTicket.id.asc())
+        .limit(max(1, min(limit, 50)))
+    )
+    return list(result.scalars().all())
+
+
+async def get_support_messages(
+    session: AsyncSession, ticket_id: int
+) -> list[SupportMessage]:
+    """Return ticket messages in chronological order."""
+    result = await session.execute(
+        select(SupportMessage)
+        .where(SupportMessage.ticket_id == ticket_id)
+        .order_by(SupportMessage.created_at.asc(), SupportMessage.id.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def add_support_message(
+    session: AsyncSession,
+    *,
+    ticket_id: int,
+    sender_telegram_id: int,
+    sender_role: str,
+    body: str,
+    attachment_file_id: str | None = None,
+    attachment_type: str | None = None,
+) -> SupportMessage:
+    """Append a message and update ticket status; caller enforces access rights."""
+    normalized_body = body.strip()
+    if sender_role not in {"user", "staff"}:
+        raise ValueError("Недопустимая роль отправителя.")
+    if not normalized_body or len(normalized_body) > 2000:
+        raise ValueError("Сообщение должно содержать от 1 до 2000 символов.")
+    if attachment_file_id and attachment_type != "photo":
+        raise ValueError("Поддерживаются только фотографии.")
+    ticket = await session.get(SupportTicket, ticket_id)
+    if ticket is None:
+        raise ValueError("Обращение не найдено.")
+    if ticket.status == "closed":
+        raise ValueError("Обращение закрыто. Создайте новое через меню поддержки.")
+    message = SupportMessage(
+        ticket_id=ticket_id,
+        sender_telegram_id=sender_telegram_id,
+        sender_role=sender_role,
+        body=normalized_body,
+        attachment_file_id=attachment_file_id,
+        attachment_type=attachment_type if attachment_file_id else None,
+    )
+    session.add(message)
+    ticket.status = "open" if sender_role == "user" else "answered"
+    ticket.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(message)
+    return message
+
+
+async def close_support_ticket(
+    session: AsyncSession, *, ticket_id: int
+) -> SupportTicket | None:
+    """Close a support ticket while retaining its message history."""
+    ticket = await session.get(SupportTicket, ticket_id)
+    if ticket is None or ticket.status == "closed":
+        return None
+    ticket.status = "closed"
+    ticket.closed_at = datetime.now(UTC)
+    ticket.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(ticket)
+    return ticket

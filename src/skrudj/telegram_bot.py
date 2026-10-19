@@ -41,6 +41,7 @@ from skrudj.listing_validation import (
     validate_text_field,
 )
 from skrudj.notifications import notify_telegram_admins
+from skrudj.support import setup_support_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -951,6 +952,7 @@ async def run_telegram_bot(token: str, session_factory) -> None:
     dispatcher = Dispatcher()
     setup_admin_handlers(dispatcher, session_factory, get_settings())
     setup_telegram_handlers(dispatcher, session_factory)
+    setup_support_handlers(dispatcher, session_factory, get_settings())
     try:
         logger.info("Starting Telegram bot polling.")
         await dispatcher.start_polling(bot)
