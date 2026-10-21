@@ -72,6 +72,7 @@ async def test_valid_event_is_acknowledged_and_dispatched(vk_settings: Settings)
     [
         ({"type": "message_new", "group_id": 123, "secret": "test-callback-secret"}, 403),
         ({"type": "message_new", "group_id": 987654, "secret": "wrong"}, 403),
+        ({"type": "message_new", "group_id": 987654, "secret": "test-api-token"}, 403),
         ({"type": "message_new", "group_id": 987654}, 403),
         ({"group_id": 987654, "secret": "test-callback-secret"}, 400),
     ],
