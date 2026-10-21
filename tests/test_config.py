@@ -30,3 +30,43 @@ def test_invalid_admin_id_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="integers"):
         _ = settings.vk_admin_id_set
+
+
+def test_blank_vk_secrets_are_treated_as_unset() -> None:
+    settings = Settings(
+        _env_file=None,
+        vk_group_token="  ",
+        vk_callback_secret="",
+        vk_confirmation_code="  ",
+    )
+
+    assert settings.vk_group_token is None
+    assert settings.vk_callback_secret is None
+    assert settings.vk_confirmation_code is None
+
+
+def test_vk_secrets_are_trimmed_without_being_logged() -> None:
+    settings = Settings(
+        _env_file=None,
+        vk_group_token=" token-value ",
+        vk_callback_secret=" callback-secret ",
+    )
+
+    assert settings.vk_group_token is not None
+    assert settings.vk_group_token.get_secret_value() == "token-value"
+    assert settings.vk_callback_secret is not None
+    assert settings.vk_callback_secret.get_secret_value() == "callback-secret"
+    assert "token-value" not in repr(settings)
+    assert "callback-secret" not in repr(settings)
+
+
+@pytest.mark.parametrize("group_id", [0, -1, "abc", True, 1.5])
+def test_invalid_vk_group_id_is_rejected(group_id: object) -> None:
+    with pytest.raises(ValueError, match="VK_GROUP_ID"):
+        Settings(_env_file=None, vk_group_id=group_id)
+
+
+def test_valid_vk_group_id_accepts_numeric_environment_value() -> None:
+    settings = Settings(_env_file=None, vk_group_id="123456")
+
+    assert settings.vk_group_id == 123456
