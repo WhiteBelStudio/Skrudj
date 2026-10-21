@@ -42,6 +42,44 @@ class Settings(BaseSettings):
     max_photos_per_listing: int = Field(default=5, ge=1, le=20)
     max_upload_size_mb: int = Field(default=10, ge=1, le=100)
 
+    @field_validator("vk_group_token", "vk_callback_secret", mode="before")
+    @classmethod
+    def normalize_vk_secrets(cls, value: object) -> object:
+        """Treat empty VK secrets as unset and trim accidental whitespace."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("vk_confirmation_code", mode="before")
+    @classmethod
+    def normalize_vk_confirmation_code(cls, value: object) -> object:
+        """Treat an empty confirmation code as unset."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("vk_group_id", mode="before")
+    @classmethod
+    def validate_vk_group_id(cls, value: object) -> object:
+        """Accept only positive numeric VK community IDs when configured."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            raise ValueError("VK_GROUP_ID must be a positive integer.")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("VK_GROUP_ID must be a positive integer.") from exc
+        if parsed <= 0 or (isinstance(value, float) and not value.is_integer()):
+            raise ValueError("VK_GROUP_ID must be a positive integer.")
+        return parsed
+
     @field_validator("database_url", mode="before")
     @classmethod
     def use_default_database_url_when_blank(cls, value: object) -> str:
