@@ -14,6 +14,8 @@ from skrudj.config import Settings
 logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
+SETTINGS_KEY = web.AppKey("vk_settings", Settings)
+EVENT_HANDLER_KEY = web.AppKey("vk_event_handler", EventHandler)
 
 
 async def _ignore_event(event: dict[str, Any]) -> None:
@@ -30,8 +32,8 @@ def create_vk_callback_app(
     the literal `ok` for accepted events. Invalid requests receive HTTP 403.
     """
     app = web.Application(client_max_size=256 * 1024)
-    app[web.AppKey("vk_settings", Settings)] = settings
-    app[web.AppKey("vk_event_handler", EventHandler)] = event_handler or _ignore_event
+    app[SETTINGS_KEY] = settings
+    app[EVENT_HANDLER_KEY] = event_handler or _ignore_event
     app.router.add_get("/health/live", _health_live)
     app.router.add_post("/vk/callback", handle_vk_callback)
     return app
@@ -44,8 +46,8 @@ async def _health_live(request: web.Request) -> web.Response:
 
 async def handle_vk_callback(request: web.Request) -> web.Response:
     """Validate and acknowledge one VK Callback API event."""
-    settings: Settings = request.app[web.AppKey("vk_settings", Settings)]
-    event_handler: EventHandler = request.app[web.AppKey("vk_event_handler", EventHandler)]
+    settings: Settings = request.app[SETTINGS_KEY]
+    event_handler: EventHandler = request.app[EVENT_HANDLER_KEY]
 
     if settings.vk_group_id is None or not settings.vk_confirmation_code:
         logger.error("VK Callback API received a request before configuration was complete.")
