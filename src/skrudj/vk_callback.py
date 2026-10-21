@@ -83,8 +83,7 @@ async def handle_vk_callback(request: web.Request) -> web.Response:
     if event_type == "confirmation":
         return web.Response(text=settings.vk_confirmation_code, content_type="text/plain")
 
-    event = payload.get("object", {})
-    if not isinstance(event, dict):
+    if not isinstance(payload.get("object", {}), dict):
         raise web.HTTPBadRequest(text="VK event object must be an object.")
 
     try:
