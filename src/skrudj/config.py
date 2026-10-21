@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     vk_group_token: SecretStr | None = None
     vk_group_id: int | None = None
     vk_confirmation_code: str | None = None
+    vk_callback_host: str = "0.0.0.0"
+    vk_callback_port: int = Field(default=8080, ge=1, le=65535)
 
     database_url: str = DEFAULT_DATABASE_URL
 
