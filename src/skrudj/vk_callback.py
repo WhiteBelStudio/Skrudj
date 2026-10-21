@@ -66,7 +66,11 @@ async def handle_vk_callback(request: web.Request) -> web.Response:
         raise web.HTTPForbidden(text="Unknown VK group.")
 
     supplied_secret = payload.get("secret")
-    expected_secret = settings.vk_group_token.get_secret_value() if settings.vk_group_token else ""
+    expected_secret = (
+        settings.vk_callback_secret.get_secret_value()
+        if settings.vk_callback_secret
+        else ""
+    )
     if not expected_secret or not isinstance(supplied_secret, str):
         raise web.HTTPForbidden(text="Invalid VK secret.")
     if not hmac.compare_digest(supplied_secret, expected_secret):
