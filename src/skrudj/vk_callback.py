@@ -49,7 +49,12 @@ async def handle_vk_callback(request: web.Request) -> web.Response:
     settings: Settings = request.app[SETTINGS_KEY]
     event_handler: EventHandler = request.app[EVENT_HANDLER_KEY]
 
-    if settings.vk_group_id is None or not settings.vk_confirmation_code:
+    if (
+        settings.vk_group_id is None
+        or settings.vk_callback_secret is None
+        or not settings.vk_callback_secret.get_secret_value()
+        or not settings.vk_confirmation_code
+    ):
         logger.error("VK Callback API received a request before configuration was complete.")
         raise web.HTTPServiceUnavailable(text="VK callback is not configured.")
 
