@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/vk/callback", "destination": "/api/vk/callback" }
+  ]
+}
