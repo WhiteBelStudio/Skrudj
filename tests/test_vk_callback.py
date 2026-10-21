@@ -24,7 +24,7 @@ async def test_health_endpoint_does_not_expose_secrets(vk_settings: Settings) ->
 
     assert response.status == 200
     assert await response.json() == {"status": "ok", "service": "vk-callback"}
-    assert "test-group-secret" not in response.text
+    assert "test-group-secret" not in await response.text()
 
 
 @pytest.mark.asyncio
