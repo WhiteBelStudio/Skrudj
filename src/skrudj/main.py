@@ -29,8 +29,8 @@ def _vk_callback_is_configured(settings: Settings) -> bool:
     """Return whether all required VK Callback API settings are present."""
     return (
         settings.vk_group_id is not None
-        and settings.vk_group_token is not None
-        and bool(settings.vk_group_token.get_secret_value())
+        and settings.vk_callback_secret is not None
+        and bool(settings.vk_callback_secret.get_secret_value())
         and bool(settings.vk_confirmation_code)
     )
 
