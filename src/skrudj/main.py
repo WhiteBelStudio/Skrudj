@@ -5,9 +5,12 @@ import logging
 import sys
 from pathlib import Path
 
-from skrudj.config import get_settings
+from aiohttp import web
+
+from skrudj.config import Settings, get_settings
 from skrudj.database import initialize_database, make_engine, make_session_factory
 from skrudj.telegram_bot import run_telegram_bot
+from skrudj.vk_callback import create_vk_callback_app
 
 
 def configure_logging(level: str) -> None:
@@ -20,6 +23,38 @@ def configure_logging(level: str) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stdout,
     )
+
+
+def _vk_callback_is_configured(settings: Settings) -> bool:
+    """Return whether all required VK Callback API settings are present."""
+    return (
+        settings.vk_group_id is not None
+        and settings.vk_group_token is not None
+        and bool(settings.vk_group_token.get_secret_value())
+        and bool(settings.vk_confirmation_code)
+    )
+
+
+async def run_vk_callback_server(settings: Settings) -> None:
+    """Run the VK Callback API server until the application shuts down."""
+    app = create_vk_callback_app(settings)
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(
+        runner,
+        host=settings.vk_callback_host,
+        port=settings.vk_callback_port,
+    )
+    try:
+        await site.start()
+        logging.getLogger("skrudj.vk_callback").info(
+            "VK Callback API listening on %s:%s",
+            settings.vk_callback_host,
+            settings.vk_callback_port,
+        )
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
 
 
 async def run() -> None:
@@ -37,18 +72,34 @@ async def run() -> None:
         await initialize_database(engine)
         logger.info("Database initialized.")
 
-        if settings.telegram_bot_token is None:
+        vk_enabled = _vk_callback_is_configured(settings)
+        if settings.telegram_bot_token is None and not vk_enabled:
             logger.warning(
-                "TELEGRAM_BOT_TOKEN is not configured; database is ready, "
-                "but Telegram polling was not started."
+                "Neither TELEGRAM_BOT_TOKEN nor complete VK Callback configuration is set; "
+                "database is ready, but no bot or callback server was started."
             )
             return
 
-        session_factory = make_session_factory(engine)
-        await run_telegram_bot(
-            settings.telegram_bot_token.get_secret_value(),
-            session_factory,
-        )
+        tasks = []
+        if settings.telegram_bot_token is not None:
+            session_factory = make_session_factory(engine)
+            tasks.append(
+                run_telegram_bot(
+                    settings.telegram_bot_token.get_secret_value(),
+                    session_factory,
+                )
+            )
+        if vk_enabled:
+            tasks.append(run_vk_callback_server(settings))
+        elif settings.vk_group_id is not None or settings.vk_group_token is not None:
+            logger.warning(
+                "VK Callback settings are incomplete; VK server was not started."
+            )
+
+        if len(tasks) == 1:
+            await tasks[0]
+        else:
+            await asyncio.gather(*tasks)
     finally:
         await engine.dispose()
 
