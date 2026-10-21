@@ -12,7 +12,8 @@ def vk_settings() -> Settings:
     return Settings(
         _env_file=None,
         vk_group_id=987654,
-        vk_group_token="test-group-secret",
+        vk_group_token="test-api-token",
+        vk_callback_secret="test-callback-secret",
         vk_confirmation_code="confirm-me",
     )
 
@@ -24,7 +25,7 @@ async def test_health_endpoint_does_not_expose_secrets(vk_settings: Settings) ->
 
     assert response.status == 200
     assert await response.json() == {"status": "ok", "service": "vk-callback"}
-    assert "test-group-secret" not in await response.text()
+    assert "test-callback-secret" not in await response.text()
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_confirmation_returns_configured_plain_text_code(vk_settings: Sett
             json={
                 "type": "confirmation",
                 "group_id": 987654,
-                "secret": "test-group-secret",
+                "secret": "test-callback-secret",
                 "object": {},
             },
         )
@@ -54,7 +55,7 @@ async def test_valid_event_is_acknowledged_and_dispatched(vk_settings: Settings)
     payload = {
         "type": "message_new",
         "group_id": 987654,
-        "secret": "test-group-secret",
+        "secret": "test-callback-secret",
         "object": {"message": {"text": "Привет"}},
     }
     async with TestClient(TestServer(create_vk_callback_app(vk_settings, handler))) as client:
@@ -69,10 +70,10 @@ async def test_valid_event_is_acknowledged_and_dispatched(vk_settings: Settings)
 @pytest.mark.parametrize(
     ("payload", "expected_status"),
     [
-        ({"type": "message_new", "group_id": 123, "secret": "test-group-secret"}, 403),
+        ({"type": "message_new", "group_id": 123, "secret": "test-callback-secret"}, 403),
         ({"type": "message_new", "group_id": 987654, "secret": "wrong"}, 403),
         ({"type": "message_new", "group_id": 987654}, 403),
-        ({"group_id": 987654, "secret": "test-group-secret"}, 400),
+        ({"group_id": 987654, "secret": "test-callback-secret"}, 400),
     ],
 )
 async def test_invalid_callback_requests_are_rejected(
@@ -109,7 +110,7 @@ async def test_handler_failure_returns_server_error(vk_settings: Settings) -> No
             json={
                 "type": "message_new",
                 "group_id": 987654,
-                "secret": "test-group-secret",
+                "secret": "test-callback-secret",
                 "object": {},
             },
         )
