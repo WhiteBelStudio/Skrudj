@@ -91,7 +91,11 @@ async def run() -> None:
             )
         if vk_enabled:
             tasks.append(run_vk_callback_server(settings))
-        elif settings.vk_group_id is not None or settings.vk_group_token is not None:
+        elif (
+            settings.vk_group_id is not None
+            or settings.vk_callback_secret is not None
+            or settings.vk_confirmation_code is not None
+        ):
             logger.warning(
                 "VK Callback settings are incomplete; VK server was not started."
             )
