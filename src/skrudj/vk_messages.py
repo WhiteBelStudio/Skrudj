@@ -46,7 +46,8 @@ def build_vk_reply(event: dict[str, Any]) -> tuple[int, str] | None:
     incoming_text = message.get("text", "")
     normalized = incoming_text.strip().casefold() if isinstance(incoming_text, str) else ""
 
-    if normalized in {"привет", "здравствуйте", "добрый день", "начать", "/start", "меню", "помощь", "help"}:
+    greetings = {"привет", "здравствуйте", "добрый день", "начать", "/start", "меню", "помощь", "help"}
+    if normalized in greetings:
         reply = (
             "Привет! 👋 Вы написали в сообщество «Скрудж Макдак».\n\n"
             "Я помогу с вопросами по объявлениям. Автоматическая обработка объявлений "
@@ -83,7 +84,9 @@ async def handle_vk_event(event: dict[str, Any], settings: Settings) -> None:
 
     try:
         async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-            async with session.post("https://api.vk.com/method/messages.send", data=form) as response:
+            async with session.post(
+                "https://api.vk.com/method/messages.send", data=form
+            ) as response:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
     except (ClientError, TimeoutError, ValueError) as exc:
