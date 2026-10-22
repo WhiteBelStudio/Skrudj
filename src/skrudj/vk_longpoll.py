@@ -58,15 +58,17 @@ class VKLongPollClient:
         if self._session is None:
             timeout = aiohttp.ClientTimeout(total=35, connect=10)
             self._session = aiohttp.ClientSession(timeout=timeout)
-        logger.info("VK Group Long Poll receiver starting for group %s.", self.group_id)
+        logger.info("[VK] CONNECTING — starting Group Long Poll for group %s.", self.group_id)
         try:
             while True:
                 try:
                     await self._poll_forever()
                 except asyncio.CancelledError:
+                    logger.info("[VK] STOPPED — Long Poll task was cancelled.")
                     raise
-                except (aiohttp.ClientError, asyncio.TimeoutError, VKAPIError, ValueError):
-                    logger.exception("VK Long Poll cycle failed; retrying in 5 seconds.")
+                except (aiohttp.ClientError, asyncio.TimeoutError, VKAPIError, ValueError) as exc:
+                    logger.exception("[VK] ERROR — Long Poll connection failed: %s", exc)
+                    logger.warning("[VK] RECONNECTING — next attempt in 5 seconds.")
                     await asyncio.sleep(5)
         finally:
             if self._owns_session and self._session is not None:
@@ -109,6 +111,7 @@ class VKLongPollClient:
     async def _poll_forever(self) -> None:
         assert self._session is not None
         server, key, ts = await self._get_longpoll_server()
+        connected = False
         while True:
             params = {"act": "a_check", "key": key, "ts": ts, "wait": 25, "version": 3}
             async with self._session.get(server, params=params) as response:
@@ -118,12 +121,17 @@ class VKLongPollClient:
                 raise VKAPIError("VK Long Poll returned an invalid response.")
             failed = body.get("failed")
             if failed:
+                if connected:
+                    logger.warning("[VK] DISCONNECTED — Long Poll returned failure code %s.", failed)
                 if failed == 1 and body.get("ts") is not None:
                     ts = str(body["ts"])
                     continue
                 # Codes 2 and 3 mean the key or server expired; obtain fresh settings.
-                logger.warning("VK Long Poll requested server refresh (code %s).", failed)
+                logger.warning("[VK] RECONNECTING — refreshing Long Poll server (code %s).", failed)
                 return
+            if not connected:
+                connected = True
+                logger.info("[VK] CONNECTED — Group Long Poll is receiving updates for group %s.", self.group_id)
             if body.get("ts") is not None:
                 ts = str(body["ts"])
             updates = body.get("updates", [])
