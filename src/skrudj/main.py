@@ -10,8 +10,8 @@ from aiohttp import web
 from skrudj.config import Settings, get_settings
 from skrudj.database import initialize_database, make_engine, make_session_factory
 from skrudj.telegram_bot import run_telegram_bot
-from skrudj.vk_messages import handle_vk_event
 from skrudj.vk_callback import create_vk_callback_app
+from skrudj.vk_messages import handle_vk_event
 
 
 def configure_logging(level: str) -> None:
