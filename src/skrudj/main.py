@@ -11,6 +11,7 @@ from skrudj.config import Settings, get_settings
 from skrudj.database import initialize_database, make_engine, make_session_factory
 from skrudj.telegram_bot import run_telegram_bot
 from skrudj.vk_callback import create_vk_callback_app
+from skrudj.vk_longpoll import run_vk_longpoll
 
 
 def configure_logging(level: str) -> None:
@@ -72,11 +73,18 @@ async def run() -> None:
         await initialize_database(engine)
         logger.info("Database initialized.")
 
-        vk_enabled = _vk_callback_is_configured(settings)
-        if settings.telegram_bot_token is None and not vk_enabled:
+        vk_callback_enabled = _vk_callback_is_configured(settings)
+        vk_longpoll_enabled = (
+            settings.vk_group_id is not None and settings.vk_group_token is not None
+        )
+        if (
+            settings.telegram_bot_token is None
+            and not vk_callback_enabled
+            and not vk_longpoll_enabled
+        ):
             logger.warning(
-                "Neither TELEGRAM_BOT_TOKEN nor complete VK Callback configuration is set; "
-                "database is ready, but no bot or callback server was started."
+                "No Telegram token or complete VK configuration is set; "
+                "database is ready, but no bot or VK listener was started."
             )
             return
 
@@ -89,7 +97,9 @@ async def run() -> None:
                     session_factory,
                 )
             )
-        if vk_enabled:
+        if vk_longpoll_enabled:
+            tasks.append(run_vk_longpoll(settings))
+        if vk_callback_enabled:
             tasks.append(run_vk_callback_server(settings))
         elif (
             settings.vk_group_id is not None
