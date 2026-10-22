@@ -46,7 +46,9 @@ def build_vk_reply(event: dict[str, Any]) -> tuple[int, str] | None:
     incoming_text = message.get("text", "")
     normalized = incoming_text.strip().casefold() if isinstance(incoming_text, str) else ""
 
-    greetings = {"привет", "здравствуйте", "добрый день", "начать", "/start", "меню", "помощь", "help"}
+    greetings = {
+        "привет", "здравствуйте", "добрый день", "начать", "/start", "меню", "помощь", "help"
+    }
     if normalized in greetings:
         reply = (
             "Привет! 👋 Вы написали в сообщество «Скрудж Макдак».\n\n"
