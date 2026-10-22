@@ -67,7 +67,11 @@ async def handle_vk_callback(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="JSON payload must be an object.")
 
     group_id = payload.get("group_id")
-    if isinstance(group_id, bool) or not isinstance(group_id, int) or group_id != settings.vk_group_id:
+    if (
+        isinstance(group_id, bool)
+        or not isinstance(group_id, int)
+        or group_id != settings.vk_group_id
+    ):
         raise web.HTTPForbidden(text="Unknown VK group.")
 
     supplied_secret = payload.get("secret")
