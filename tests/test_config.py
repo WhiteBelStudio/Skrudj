@@ -79,7 +79,10 @@ def test_blank_telegram_proxy_is_treated_as_unset() -> None:
 
 
 def test_telegram_proxy_is_trimmed_and_hidden_from_repr() -> None:
-    settings = Settings(_env_file=None, telegram_proxy=" socks5://user:password@proxy.example:1080 ")
+    settings = Settings(
+        _env_file=None,
+        telegram_proxy=" socks5://user:password@proxy.example:1080 ",
+    )
 
     assert settings.telegram_proxy is not None
     assert settings.telegram_proxy.get_secret_value() == "socks5://user:password@proxy.example:1080"
