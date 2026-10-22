@@ -1,7 +1,7 @@
 """Tests for the VK Callback API endpoint."""
 
-from aiohttp.test_utils import TestClient, TestServer
 import pytest
+from aiohttp.test_utils import TestClient, TestServer
 
 from skrudj.config import Settings
 from skrudj.vk_callback import create_vk_callback_app
