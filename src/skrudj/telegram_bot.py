@@ -5,6 +5,7 @@ import logging
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -1077,11 +1078,20 @@ def setup_telegram_handlers(dispatcher: Dispatcher, session_factory) -> None:
 
 async def run_telegram_bot(token: str, session_factory) -> None:
     """Start long polling and close the Telegram HTTP session on shutdown."""
-    bot = Bot(token=token)
+    settings = get_settings()
+    proxy = (
+        settings.telegram_proxy.get_secret_value()
+        if settings.telegram_proxy is not None
+        else None
+    )
+    session = AiohttpSession(proxy=proxy) if proxy else None
+    bot = Bot(token=token, session=session) if session else Bot(token=token)
+    if proxy:
+        logger.info("Telegram proxy configured; proxy credentials are not logged.")
     dispatcher = Dispatcher()
-    setup_admin_handlers(dispatcher, session_factory, get_settings())
+    setup_admin_handlers(dispatcher, session_factory, settings)
     setup_telegram_handlers(dispatcher, session_factory)
-    setup_support_handlers(dispatcher, session_factory, get_settings())
+    setup_support_handlers(dispatcher, session_factory, settings)
     try:
         logger.info("Checking Telegram API connectivity.")
         while True:
