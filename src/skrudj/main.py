@@ -10,6 +10,7 @@ from aiohttp import web
 from skrudj.config import Settings, get_settings
 from skrudj.database import initialize_database, make_engine, make_session_factory
 from skrudj.telegram_bot import run_telegram_bot
+from skrudj.vk_messages import handle_vk_event
 from skrudj.vk_callback import create_vk_callback_app
 
 
@@ -29,6 +30,8 @@ def _vk_callback_is_configured(settings: Settings) -> bool:
     """Return whether all required VK Callback API settings are present."""
     return (
         settings.vk_group_id is not None
+        and settings.vk_group_token is not None
+        and bool(settings.vk_group_token.get_secret_value())
         and settings.vk_callback_secret is not None
         and bool(settings.vk_callback_secret.get_secret_value())
         and bool(settings.vk_confirmation_code)
@@ -37,7 +40,10 @@ def _vk_callback_is_configured(settings: Settings) -> bool:
 
 async def run_vk_callback_server(settings: Settings) -> None:
     """Run the VK Callback API server until the application shuts down."""
-    app = create_vk_callback_app(settings)
+    app = create_vk_callback_app(
+        settings,
+        event_handler=lambda event: handle_vk_event(event, settings),
+    )
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(
