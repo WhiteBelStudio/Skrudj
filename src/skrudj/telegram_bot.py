@@ -1,9 +1,11 @@
 """Telegram bot handlers for registration, profiles, and listing creation."""
 
+import asyncio
 import logging
 from decimal import Decimal
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -1081,6 +1083,19 @@ async def run_telegram_bot(token: str, session_factory) -> None:
     setup_telegram_handlers(dispatcher, session_factory)
     setup_support_handlers(dispatcher, session_factory, get_settings())
     try:
+        logger.info("Checking Telegram API connectivity.")
+        while True:
+            try:
+                await bot.me()
+                logger.info("Telegram API connection established.")
+                break
+            except TelegramNetworkError:
+                logger.exception(
+                    "Telegram API is unreachable; retrying in 10 seconds. "
+                    "Check the Pterodactyl network, DNS, or approved proxy settings."
+                )
+                await asyncio.sleep(10)
+
         logger.info("Starting Telegram bot polling.")
         await dispatcher.start_polling(bot)
     finally:
