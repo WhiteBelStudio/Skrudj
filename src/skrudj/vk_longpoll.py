@@ -88,7 +88,11 @@ class VKLongPollClient:
         if "error" in body:
             error = body["error"]
             code = error.get("error_code") if isinstance(error, dict) else "unknown"
-            message = error.get("error_msg", "unknown error") if isinstance(error, dict) else "unknown error"
+            message = (
+                error.get("error_msg", "unknown error")
+                if isinstance(error, dict)
+                else "unknown error"
+            )
             raise VKAPIError(f"VK API {method} failed (code {code}): {message}")
         result = body.get("response")
         if not isinstance(result, dict):
