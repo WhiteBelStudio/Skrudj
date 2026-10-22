@@ -21,8 +21,21 @@ def _env(name: str) -> str:
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path.rstrip("/") in {"/health/live", "/vk/callback", "/api/vk/callback"}:
-            self._send(200, "ok", "text/plain; charset=utf-8")
+        path = self.path.rstrip("/")
+        if path in {"/health/live", "/vk/callback", "/api/vk/callback"}:
+            # Safe diagnostics: report presence only; never expose secret values.
+            if path == "/health/live":
+                status = {
+                    "status": "ok",
+                    "service": "vk-callback-bridge",
+                    "group_id_configured": bool(_env("VK_GROUP_ID").isdigit()),
+                    "confirmation_code_configured": bool(_env("VK_CONFIRMATION_CODE")),
+                    "callback_secret_configured": bool(_env("VK_CALLBACK_SECRET")),
+                    "forward_url_configured": _env("VK_FORWARD_URL").startswith("https://"),
+                }
+                self._send(200, json.dumps(status), "application/json; charset=utf-8")
+            else:
+                self._send(200, "ok", "text/plain; charset=utf-8")
             return
         self._send(404, "not found", "text/plain; charset=utf-8")
 
