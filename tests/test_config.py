@@ -70,3 +70,17 @@ def test_valid_vk_group_id_accepts_numeric_environment_value() -> None:
     settings = Settings(_env_file=None, vk_group_id="123456")
 
     assert settings.vk_group_id == 123456
+
+
+def test_blank_telegram_proxy_is_treated_as_unset() -> None:
+    settings = Settings(_env_file=None, telegram_proxy="  ")
+
+    assert settings.telegram_proxy is None
+
+
+def test_telegram_proxy_is_trimmed_and_hidden_from_repr() -> None:
+    settings = Settings(_env_file=None, telegram_proxy=" socks5://user:password@proxy.example:1080 ")
+
+    assert settings.telegram_proxy is not None
+    assert settings.telegram_proxy.get_secret_value() == "socks5://user:password@proxy.example:1080"
+    assert "password" not in repr(settings)
