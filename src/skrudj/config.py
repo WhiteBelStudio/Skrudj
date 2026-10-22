@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Moscow"
 
     telegram_bot_token: SecretStr | None = None
+    telegram_proxy: SecretStr | None = None
     vk_group_token: SecretStr | None = None
     vk_callback_secret: SecretStr | None = None
     vk_group_id: int | None = None
@@ -41,6 +42,17 @@ class Settings(BaseSettings):
 
     max_photos_per_listing: int = Field(default=5, ge=1, le=20)
     max_upload_size_mb: int = Field(default=10, ge=1, le=100)
+
+    @field_validator("telegram_proxy", mode="before")
+    @classmethod
+    def normalize_telegram_proxy(cls, value: object) -> object:
+        """Treat a blank Telegram proxy as unset and trim accidental whitespace."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
     @field_validator("vk_group_token", "vk_callback_secret", mode="before")
     @classmethod
